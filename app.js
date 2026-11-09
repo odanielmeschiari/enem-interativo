@@ -55,6 +55,8 @@ function renderMap(m) {
     e.b.textContent = v && !SMALL.has(u) ? (mean ? Math.round(v) : compact(v)) : '';
     e.title.textContent = `${e.name}: ${v ? (mean ? 'média ' + f1(v) : fmt(v) + ' candidatos') : 'sem dados'}`;
   }
+  const top = m.ufs.map((u, i) => [u, vals[i]]).filter(([, v]) => v).sort((a, b) => b[1] - a[1]).slice(0, 10);
+  $('rank').innerHTML = top.map(([u, v]) => `<li data-uf="${u}"${ufSel.has(u) ? ' class="sel"' : ''}><b>${u}</b><div><i style="width:${100 * v / top[0][1]}%"></i></div><span>${mean ? f1(v) : fmt(v)}</span></li>`).join('');
   $('legend').innerHTML = ok.length ? `<span>${mean ? Math.round(lo) : compact(lo)}</span><i></i><span>${mean ? Math.round(hi) : compact(hi)}</span>` : '';
 }
 const PAGE = 12, LBL = (id) => Object.fromEntries(GROUPS.find((g) => g.id === id).opts);
@@ -200,7 +202,7 @@ $('sort').innerHTML = '<option value="">Ordem do arquivo</option>' + SCORES.flat
 $('sort').onchange = () => { pageOff = 0; requestPage(); };
 $('prev').onclick = () => { pageOff = Math.max(0, pageOff - PAGE); requestPage(); };
 $('next').onclick = () => { pageOff += PAGE; requestPage(); };
-$('map').addEventListener('click', (e) => { const b = e.target.closest('[data-uf]'); if (!b) return; const u = b.dataset.uf; ufSel.has(u) ? ufSel.delete(u) : ufSel.add(u); schedule(); });
+for (const id of ['map', 'rank']) $(id).addEventListener('click', (e) => { const b = e.target.closest('[data-uf]'); if (!b) return; const u = b.dataset.uf; ufSel.has(u) ? ufSel.delete(u) : ufSel.add(u); schedule(); });
 $('metric').onchange = schedule;
 $('file').onchange = (e) => e.target.files[0] && start(e.target.files[0]);
 $('release').onclick = () => worker.postMessage({ t: 'release' });

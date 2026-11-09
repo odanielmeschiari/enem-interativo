@@ -56,3 +56,5 @@ h2 select { float:right; font-size:13px; }
 #map path.sel { stroke:#fff; stroke-width:3; }
 #map text { text-anchor:middle; dominant-baseline:central; fill:#fff; paint-order:stroke; stroke:#0d1117; stroke-width:4px; stroke-linejoin:round; cursor:pointer; user-select:none; }
 #map .lc { font-size:26px; font-weight:700; } #map .lv { font-size:20px; }
+.rank { list-style:none; margin:0; padding:0; } .rank li { display:grid; grid-template-columns:32px 1fr 80px; align-items:center; gap:8px; font-size:13px; padding:2px 0; cursor:pointer; }
+.rank li > div { height:10px; background:#21262d; border-radius:5px; overflow:hidden; } .rank i { display:block; height:100%; background:var(--acc); border-radius:5px; } .rank span { text-align:right; color:var(--mut); } .rank li.sel b { color:#58a6ff; }
