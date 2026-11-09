@@ -1,7 +1,7 @@
 'use strict';
 const $ = (id) => document.getElementById(id);
 const fmt = (x) => x.toLocaleString('pt-BR');
-let worker, seq = 0, timer;
+let worker, seq = 0, timer, t0;
 
 function start(file) {
   if (worker) worker.terminate();
@@ -9,7 +9,7 @@ function start(file) {
   worker.onmessage = ({ data: m }) => {
     if (m.t === 'progress') {
       $('bar').hidden = false; $('bar').value = m.read / m.size;
-      $('status').textContent = `Lendo… ${Math.round(100 * m.read / m.size)}% (${fmt(m.rows)} linhas)`;
+      $('status').textContent = `Lendo… ${Math.round(100 * m.read / m.size)}% • ${fmt(m.rows)} linhas • ${Math.round((performance.now() - t0) / 1000)} s`;
     } else if (m.t === 'loaded') {
       $('bar').hidden = true; $('work').hidden = false; $('release').hidden = false;
       $('status').textContent = `${fmt(m.rows)} linhas carregadas em ${(m.ms / 1000).toFixed(1)} s.`;
@@ -25,7 +25,9 @@ function start(file) {
       $('bar').hidden = true; $('status').textContent = 'Erro: ' + m.msg;
     }
   };
-  $('work').hidden = true; $('status').textContent = 'Iniciando…';
+  worker.onerror = (e) => { $('bar').hidden = true; $('status').textContent = 'Erro ao iniciar o leitor: ' + (e.message || 'veja o console (F12)'); };
+  t0 = performance.now();
+  $('work').hidden = true; $('bar').hidden = false; $('bar').value = 0; $('status').textContent = 'Lendo… 0%';
   worker.postMessage({ t: 'load', file }); // the worker reads the stream once and drops the file
 }
 function run() {

@@ -99,6 +99,7 @@ function lines(b, end) { // b[0..end) holds only complete lines
 async function load(file) {
   ready = false; cols = null;
   const t0 = performance.now(), reader = file.stream().getReader();
+  postMessage({ t: 'progress', read: 0, size: file.size, rows: 0 });
   let carry = new Uint8Array(0), read = 0, last = 0, header = false;
   for (;;) {
     const { done, value } = await reader.read();
@@ -107,7 +108,10 @@ async function load(file) {
     let b = value;
     if (carry.length) { b = new Uint8Array(carry.length + value.length); b.set(carry); b.set(value, carry.length); }
     let end = b.lastIndexOf(10) + 1;
-    if (end === 0) { carry = b; continue; }
+    if (end === 0) {
+      if (b.length > 8e6) throw new Error('Nenhuma quebra de linha encontrada nos primeiros 8 MB: arquivo inválido?');
+      carry = b; continue;
+    }
     let start = 0;
     if (!header) { const nl = b.indexOf(10); setup(b.subarray(0, nl)); header = true; start = nl + 1; }
     lines(start ? b.subarray(start) : b, end - start);
