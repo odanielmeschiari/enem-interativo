@@ -13,8 +13,9 @@ button { background:var(--bg); color:var(--fg); border:1px solid var(--line); bo
 #ms { color:var(--mut); margin:0; }
 [hidden] { display:none !important; }
 main { max-width:1200px; }
-.grid { display:grid; grid-template-columns:1fr 340px; gap:16px; align-items:start; }
-.result { position:sticky; top:16px; } #pct { font-size:20px; margin:0; } 
+.grid { display:grid; grid-template-columns:1fr 540px; gap:16px; align-items:start; }
+#work { display:grid; gap:16px; } .side { display:grid; gap:16px; position:sticky; top:16px; } .mut { color:var(--mut); font-size:13px; margin:6px 0 0; }
+.result #pct { font-size:20px; margin:0; }
 h3 { margin:18px 0 8px; font-size:14px; color:var(--fg); }
 h2 button { float:right; font-size:13px; }
 .chips { display:flex; flex-wrap:wrap; gap:6px; }
@@ -28,3 +29,28 @@ h2 button { float:right; font-size:13px; }
 #sug { position:absolute; z-index:5; background:var(--card); border:1px solid var(--line); border-radius:6px; min-width:320px; } #sug:empty { display:none; }
 #sug button { display:block; width:100%; text-align:left; border:0; border-radius:0; padding:8px 12px; } #sug button:hover { background:#1f6feb33; }
 @media (max-width:900px) { .grid { grid-template-columns:1fr; } }
+
+select { background:var(--bg); color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:4px 8px; }
+h2 select { float:right; font-size:13px; }
+#map { position:relative; width:512px; max-width:100%; aspect-ratio:8/7; }
+#map button { position:absolute; width:12.5%; height:14.28%; padding:2px; display:flex; flex-direction:column; align-items:center; justify-content:center; border:2px solid #0d1117; border-radius:8px; font-size:15px; font-weight:700; color:#fff; transition:background .25s; }
+#map button small { font-size:11px; font-weight:400; opacity:.9; }
+#map button.sel { border-color:#fff; box-shadow:0 0 0 2px #1f6feb; }
+#legend { display:flex; align-items:center; gap:8px; margin-top:10px; font-size:12px; color:var(--mut); }
+#legend i { flex:1; height:8px; border-radius:4px; background:linear-gradient(90deg, hsl(140 50% 14%), hsl(140 65% 48%)); }
+.statgrid { display:grid; grid-template-columns:repeat(auto-fill, minmax(230px,1fr)); gap:12px; }
+.stat { border:1px solid var(--line); border-radius:10px; padding:12px; background:var(--bg); }
+.stat h4 { margin:0; font-size:14px; color:var(--mut); font-weight:600; } .stat .mean { font-size:34px; font-weight:700; color:var(--acc); line-height:1.2; }
+.hist { display:flex; align-items:flex-end; gap:2px; height:56px; margin:6px 0; } .hist i { flex:1; background:#1f6feb; border-radius:2px 2px 0 0; min-height:2px; }
+.stat p { font-size:12px; margin:0; }
+
+.chips button { margin:0; padding:4px 12px; border:1px solid var(--line); border-radius:999px; background:var(--bg); color:var(--fg); } .chips button:hover { border-color:#1f6feb; }
+.cards { display:grid; grid-template-columns:repeat(auto-fill, minmax(290px,1fr)); gap:12px; }
+.cand { border:1px solid var(--line); border-radius:12px; padding:14px; background:linear-gradient(160deg, #161b22, #0d1117); }
+.cand .head { display:flex; justify-content:space-between; align-items:baseline; gap:8px; } .cand .head span { color:var(--mut); font-size:13px; text-align:right; }
+.tags { display:flex; flex-wrap:wrap; gap:4px; margin:8px 0; min-height:22px; } .tags i { font-style:normal; font-size:11px; padding:2px 8px; border-radius:999px; background:#1f6feb33; border:1px solid #1f6feb66; }
+.tags i.warn { background:#da363333; border-color:#da363388; }
+.bar { display:grid; grid-template-columns:28px 1fr 46px; align-items:center; gap:6px; font-size:12px; color:var(--mut); margin:3px 0; } .bar > div { height:8px; background:#21262d; border-radius:4px; overflow:hidden; } .bar i { display:block; height:100%; border-radius:4px; } .bar b { color:var(--fg); text-align:right; }
+.red { margin-top:10px; padding-top:10px; border-top:1px solid var(--line); display:flex; align-items:center; gap:12px; flex-wrap:wrap; } .red .bigscore { font-size:30px; font-weight:700; color:var(--acc); line-height:1; }
+.red small { color:var(--mut); font-size:11px; }
+.pager { display:flex; align-items:center; justify-content:center; gap:16px; margin-top:14px; color:var(--mut); } .pager button:disabled { opacity:.4; cursor:default; }

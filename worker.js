@@ -168,31 +168,84 @@ async function cacheMeta() {
   finally { db.close(); }
 }
 async function clearCache() { const db = await idb(); try { await tx(db, 'readwrite', (s) => s.clear()); } finally { db.close(); } }
+const SK = ['NU_NOTA_CN', 'NU_NOTA_CH', 'NU_NOTA_LC', 'NU_NOTA_MT', 'NU_NOTA_REDACAO', 'NU_NOTA_COMP1', 'NU_NOTA_COMP2', 'NU_NOTA_COMP3', 'NU_NOTA_COMP4', 'NU_NOTA_COMP5'];
+function summarize(k, sum, sq, cn, mn, mx, hist) { // median/quartiles come from a 1-point histogram, never from sorting
+  const c = cn[k];
+  if (!c) return { n: 0 };
+  const h = hist.subarray(k * 1001, k * 1001 + 1001), mean = sum[k] / c;
+  const pct = (p) => { let a = 0; for (let v = 0; v <= 1000; v++) { a += h[v]; if (a >= p * c) return v; } return 1000; };
+  const w = k < 5 ? 50 : 20, nb = k < 5 ? 20 : 11, bins = new Array(nb).fill(0);
+  for (let v = 0; v <= 1000; v++) if (h[v]) bins[Math.min(nb - 1, Math.floor(v / w))] += h[v];
+  return { n: c, mean, sd: Math.sqrt(Math.max(0, sq[k] / c - mean * mean)), min: mn[k], max: mx[k], p25: pct(0.25), med: pct(0.5), p75: pct(0.75), bins, w };
+}
+let matchIdx = null, matchN = 0; // indices of the last result, for paging
 function filter(q) {
   const t0 = performance.now();
   const rc = [], lo = [], hi = [], cc = [], cm = [];
   for (const k in q.ranges || {}) if (cols[k]) { rc.push(cols[k]); lo.push(q.ranges[k][0]); hi.push(q.ranges[k][1]); }
   for (const k in q.cats || {}) if (cols[k]) { cc.push(cols[k]); cm.push(q.cats[k].reduce((m, v) => m | (1 << v), 0)); }
-  if (q.ufs && q.ufs.length) { cc.push(cols.SG_UF_PROVA); cm.push(q.ufs.reduce((m, u) => m | (1 << ufNames.indexOf(u)), 0)); }
+  const ufm = q.ufs && q.ufs.length ? q.ufs.reduce((m, u) => m | (1 << ufNames.indexOf(u)), 0) : 0;
   const mset = q.muni && q.muni.length ? new Uint8Array(65536) : null, mc = cols.NO_MUNICIPIO_PROVA;
   if (mset) for (const i of q.muni) mset[i] = 1;
-  const uf = cols.SG_UF_PROVA, perUf = new Uint32Array(32), nr = rc.length, nc = cc.length;
+  const sa = SK.map((k) => cols[k]), ns = SK.length;
+  const sum = new Float64Array(ns), sq = new Float64Array(ns), cn = new Float64Array(ns);
+  const mn = new Float64Array(ns).fill(Infinity), mx = new Float64Array(ns).fill(-Infinity), hist = new Uint32Array(ns * 1001);
+  const mcol = q.metric >= 0 ? sa[q.metric] : null; // per-UF metric: counts/means ignore the UF filter itself, so the map stays informative
+  const uf = cols.SG_UF_PROVA, pc = new Uint32Array(32), ps = new Float64Array(32), pn = new Uint32Array(32);
+  const nr = rc.length, nc = cc.length;
+  if (!matchIdx || matchIdx.length < n) matchIdx = new Int32Array(n);
   let count = 0;
   outer: for (let i = 0; i < n; i++) {
     for (let k = 0; k < nr; k++) { const v = rc[k][i]; if (!(v >= lo[k] && v <= hi[k])) continue outer; } // NaN fails
     for (let k = 0; k < nc; k++) { const m = cc[k][i]; if (m > 30 || !((cm[k] >>> m) & 1)) continue outer; }
     if (mset && !mset[mc[i]]) continue;
-    count++; const u = uf[i]; if (u < 32) perUf[u]++;
+    const u = uf[i];
+    if (u < 32) { pc[u]++; if (mcol) { const x = mcol[i]; if (x === x) { ps[u] += x; pn[u]++; } } }
+    if (ufm && (u > 30 || !((ufm >>> u) & 1))) continue;
+    matchIdx[count++] = i;
+    for (let k = 0; k < ns; k++) {
+      const x = sa[k][i];
+      if (x === x) { sum[k] += x; sq[k] += x * x; cn[k]++; if (x < mn[k]) mn[k] = x; if (x > mx[k]) mx[k] = x; hist[k * 1001 + Math.min(1000, (x + 0.5) | 0)]++; }
+    }
   }
-  postMessage({ t: 'result', id: q.id, count, total: n, ms: +(performance.now() - t0).toFixed(1), perUf: Array.from(perUf.subarray(0, ufNames.length)), ufs: ufNames });
+  matchN = count;
+  const nu = ufNames.length;
+  postMessage({ t: 'result', id: q.id, count, total: n, ms: +(performance.now() - t0).toFixed(1), ufs: ufNames,
+    perUf: Array.from(pc.subarray(0, nu)), perUfMean: Array.from(ps.subarray(0, nu), (s, u) => (pn[u] ? s / pn[u] : null)),
+    stats: SK.map((_, k) => summarize(k, sum, sq, cn, mn, mx, hist)) });
+}
+function row(i) {
+  const g = (k) => cols[k][i], nm = dicts[1].names[g('NO_MUNICIPIO_PROVA')];
+  return { id: g('NU_SEQUENCIAL'), esc: g('CO_ESCOLA'), uf: ufNames[g('SG_UF_PROVA')] || null, muni: nm === undefined ? null : nm,
+    dep: g('TP_DEPENDENCIA_ADM_ESC'), loc: g('TP_LOCALIZACAO_ESC'), lin: g('TP_LINGUA'), red: g('TP_STATUS_REDACAO'),
+    pres: ['CN', 'CH', 'LC', 'MT'].map((a) => g('TP_PRESENCA_' + a)), n: SK.map((k) => { const x = g(k); return x === x ? Math.round(x * 10) / 10 : null; }) };
+}
+function page(q) { // unsorted: file order, any page; sorted: top 200 by one score
+  let idx;
+  if (!q.sort) idx = matchIdx.subarray(q.offset, Math.min(matchN, q.offset + q.limit));
+  else {
+    const col = cols[q.sort], s = q.dir === 'asc' ? -1 : 1, K = Math.min(matchN, 200, q.offset + q.limit), tv = [], ti = [];
+    for (let j = 0; j < matchN; j++) {
+      const i = matchIdx[j], x = col[i];
+      if (x !== x) continue;
+      const v = s * x;
+      if (tv.length === K && v <= tv[K - 1]) continue;
+      let p = tv.length < K ? tv.length : K - 1;
+      while (p > 0 && tv[p - 1] < v) { tv[p] = tv[p - 1]; ti[p] = ti[p - 1]; p--; }
+      tv[p] = v; ti[p] = i;
+    }
+    idx = ti.slice(q.offset, q.offset + q.limit);
+  }
+  postMessage({ t: 'page', id: q.id, total: matchN, rows: Array.from(idx, row) });
 }
 self.onmessage = async ({ data }) => {
   try {
     if (data.t === 'load') await load(data.file);
     else if (data.t === 'filter' && ready) filter(data);
+    else if (data.t === 'page' && ready) page(data);
     else if (data.t === 'init') { let meta = null; try { meta = await cacheMeta(); } catch {} postMessage({ t: meta ? 'cache' : 'nocache', meta }); }
     else if (data.t === 'usecache') await loadCache();
     else if (data.t === 'clearcache') { await clearCache(); postMessage({ t: 'cleared' }); }
-    else if (data.t === 'release') { cols = null; n = 0; ready = false; postMessage({ t: 'released' }); }
+    else if (data.t === 'release') { cols = null; matchIdx = null; n = 0; ready = false; postMessage({ t: 'released' }); }
   } catch (err) { postMessage({ t: 'error', msg: String(err.message || err) }); }
 };

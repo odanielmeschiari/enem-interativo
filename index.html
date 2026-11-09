@@ -18,29 +18,48 @@
     <button id="release" hidden>Liberar dados da memória</button>
     <button id="delcache" hidden>Apagar dados salvos</button>
   </section>
-  <div id="work" class="grid" hidden>
+  <div id="work" hidden>
+    <div class="grid">
+      <section class="card">
+        <h2>2. Filtros <button id="clear">Limpar tudo</button></h2>
+        <form id="f" onsubmit="return false">
+          <h3>Filtros prontos</h3>
+          <div id="presets" class="chips"></div>
+          <h3>Município da prova</h3>
+          <div class="ac"><input type="search" id="mq" placeholder="Digite o nome de um município…" autocomplete="off"><div id="sug"></div></div>
+          <div id="mchips" class="chips"></div>
+          <h3>Notas (mínimo e máximo)</h3>
+          <div id="scores" class="scores"></div>
+          <h3>Identificação (valor exato)</h3>
+          <label>Nº sequencial <input type="number" id="NU_SEQUENCIAL" min="0"></label>
+          <label>Código da escola <input type="number" id="CO_ESCOLA" min="0"></label>
+          <div id="groups"></div>
+        </form>
+      </section>
+      <div class="side">
+        <aside class="card result">
+          <h2>Resultado</h2>
+          <p class="big"><span id="count">–</span> <small>candidatos</small></p>
+          <p id="pct"></p>
+          <p id="ms"></p>
+        </aside>
+        <section class="card">
+          <h2>Mapa (UF da prova) <select id="metric"></select></h2>
+          <div id="map"></div>
+          <div id="legend"></div>
+          <p class="mut">Clique nos estados para filtrar. As cores ignoram o filtro de estado.</p>
+        </section>
+      </div>
+    </div>
     <section class="card">
-      <h2>2. Filtros <button id="clear">Limpar tudo</button></h2>
-      <form id="f" onsubmit="return false">
-        <h3>Município da prova</h3>
-        <div class="ac"><input type="search" id="mq" placeholder="Digite o nome de um município…" autocomplete="off"><div id="sug"></div></div>
-        <div id="mchips" class="chips"></div>
-        <h3>Estados (UF da prova)</h3>
-        <div id="ufs" class="chips"></div>
-        <h3>Notas (mínimo e máximo)</h3>
-        <div id="scores" class="scores"></div>
-        <h3>Identificação (valor exato)</h3>
-        <label>Nº sequencial <input type="number" id="NU_SEQUENCIAL" min="0"></label>
-        <label>Código da escola <input type="number" id="CO_ESCOLA" min="0"></label>
-        <div id="groups"></div>
-      </form>
+      <h2>Estatísticas do resultado</h2>
+      <div id="statgrid" class="statgrid"></div>
     </section>
-    <aside class="card result">
-      <h2>Resultado</h2>
-      <p class="big"><span id="count">–</span> <small>candidatos</small></p>
-      <p id="pct"></p>
-      <p id="ms"></p>
-    </aside>
+    <section class="card">
+      <h2>Candidatos <select id="sort"></select></h2>
+      <div id="cards" class="cards"></div>
+      <div class="pager"><button id="prev">← Anterior</button><span id="pageinfo"></span><button id="next">Próximos →</button></div>
+    </section>
   </div>
 </main>
 <script src="app.js"></script>
