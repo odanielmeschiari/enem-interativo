@@ -124,8 +124,50 @@ async function load(file) {
   for (const p of plan) if (p && p.a) cols[p.name] = p.a.slice(0, n);
   plan = []; // free the grown buffers: only the trimmed columns remain
   ready = true;
-  postMessage({ t: 'loaded', rows: n, ufs: ufNames, munis: dicts[1].codes.map((c, i) => [c, dicts[1].names[i]]), ms: Math.round(performance.now() - t0) });
+  announce(Math.round(performance.now() - t0), false);
+  try { postMessage({ t: 'saving' }); await saveCache(file); postMessage({ t: 'saved' }); }
+  catch (err) { postMessage({ t: 'savefail', msg: String(err && err.message || err) }); }
 }
+function announce(ms, cached) {
+  postMessage({ t: 'loaded', rows: n, ufs: ufNames, munis: dicts[1].codes.map((c, i) => [c, dicts[1].names[i]]), ms, cached });
+}
+// Cache: only the compact columns (~300 MB) go to IndexedDB, never the raw CSV.
+const idb = () => new Promise((res, rej) => {
+  const r = indexedDB.open('enem-cache', 1);
+  r.onupgradeneeded = () => r.result.createObjectStore('kv');
+  r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+});
+const tx = (db, mode, fn) => new Promise((res, rej) => {
+  const t = db.transaction('kv', mode), rq = fn(t.objectStore('kv'));
+  t.oncomplete = () => res(rq && rq.result); t.onerror = t.onabort = () => rej(t.error);
+});
+async function saveCache(file) {
+  const db = await idb();
+  try {
+    await tx(db, 'readwrite', (s) => s.clear());
+    for (const k in cols) await tx(db, 'readwrite', (s) => s.put(cols[k], 'col:' + k));
+    const meta = { v: 1, rows: n, cols: Object.keys(cols), ufNames, dicts: dicts.map((d) => ({ names: d.names, codes: d.codes })),
+      file: { name: file.name, size: file.size }, savedAt: Date.now() };
+    await tx(db, 'readwrite', (s) => s.put(meta, 'meta')); // written last: a partial save is never used
+  } finally { db.close(); }
+}
+async function loadCache() {
+  const t0 = performance.now(), db = await idb();
+  try {
+    const meta = await tx(db, 'readonly', (s) => s.get('meta'));
+    if (!meta) throw new Error('Nenhum dado salvo.');
+    const c = {};
+    for (const k of meta.cols) c[k] = await tx(db, 'readonly', (s) => s.get('col:' + k));
+    cols = c; n = meta.rows; ufNames = meta.ufNames; dicts = meta.dicts; ready = true;
+  } finally { db.close(); }
+  announce(Math.round(performance.now() - t0), true);
+}
+async function cacheMeta() {
+  const db = await idb();
+  try { const m = await tx(db, 'readonly', (s) => s.get('meta')); return m && { rows: m.rows, file: m.file, savedAt: m.savedAt }; }
+  finally { db.close(); }
+}
+async function clearCache() { const db = await idb(); try { await tx(db, 'readwrite', (s) => s.clear()); } finally { db.close(); } }
 function filter(q) {
   const t0 = performance.now();
   const rc = [], lo = [], hi = [], cc = [], cm = [];
@@ -148,6 +190,9 @@ self.onmessage = async ({ data }) => {
   try {
     if (data.t === 'load') await load(data.file);
     else if (data.t === 'filter' && ready) filter(data);
+    else if (data.t === 'init') { let meta = null; try { meta = await cacheMeta(); } catch {} postMessage({ t: meta ? 'cache' : 'nocache', meta }); }
+    else if (data.t === 'usecache') await loadCache();
+    else if (data.t === 'clearcache') { await clearCache(); postMessage({ t: 'cleared' }); }
     else if (data.t === 'release') { cols = null; n = 0; ready = false; postMessage({ t: 'released' }); }
   } catch (err) { postMessage({ t: 'error', msg: String(err.message || err) }); }
 };

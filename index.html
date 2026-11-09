@@ -10,11 +10,13 @@
 <header><h1>Explorador ENEM 2025</h1></header>
 <main>
   <section id="load" class="card">
-    <h2>1. Escolha o arquivo de dados</h2>
+    <h2>1. Dados (escolha o CSV do ENEM; ele fica salvo para a próxima vez)</h2>
     <input type="file" id="file" accept=".csv">
     <progress id="bar" value="0" max="1" hidden></progress>
     <p id="status">Nenhum arquivo carregado.</p>
+    <button id="usecache" hidden>Carregar dados salvos</button>
     <button id="release" hidden>Liberar dados da memória</button>
+    <button id="delcache" hidden>Apagar dados salvos</button>
   </section>
   <div id="work" class="grid" hidden>
     <section class="card">

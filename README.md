@@ -19,7 +19,8 @@ The browser opens at http://localhost:8000. Then:
 4. "Liberar dados da memória" frees the data; reload the page to start over.
 
 Stop the server with `Ctrl+C` in the terminal. If port 8000 is busy, edit `run.sh`.
-Tip: load the file a few minutes before presenting.
+After the first load the compact columns are saved in the browser (IndexedDB), so next time the app loads them in a few seconds without picking the file again. Use "Apagar dados salvos" to delete the copy. The saved copy is local to this browser profile and port (localhost:8000); keep the same browser and port.
+Tip: load the data a few minutes before presenting.
 
 ## Test without a browser
 ```

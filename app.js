@@ -51,40 +51,52 @@ function query() {
 function run() { worker.postMessage({ t: 'filter', id: ++seq, ...query() }); }
 function schedule() { clearTimeout(timer); timer = setTimeout(run, 120); }
 
-function start(file) {
-  if (worker) worker.terminate();
+let cacheInfo = null, base = '';
+const setStatus = (s) => { base = s; $('status').textContent = s; };
+const showCache = () => { $('usecache').hidden = $('delcache').hidden = !cacheInfo; };
+const busy = (txt) => { t0 = performance.now(); $('work').hidden = true; $('bar').hidden = false; $('bar').removeAttribute('value'); setStatus(txt); };
+
+function initWorker() {
   worker = new Worker('worker.js');
-  worker.onerror = (e) => { $('bar').hidden = true; $('status').textContent = 'Erro ao iniciar o leitor: ' + (e.message || 'veja o console (F12)'); };
+  worker.onerror = (e) => { $('bar').hidden = true; setStatus('Erro ao iniciar o leitor: ' + (e.message || 'veja o console (F12)')); };
   worker.onmessage = ({ data: m }) => {
     if (m.t === 'progress') {
       $('bar').hidden = false; $('bar').value = m.read / m.size;
       $('status').textContent = `Lendo… ${Math.round(100 * m.read / m.size)}% • ${fmt(m.rows)} linhas • ${Math.round((performance.now() - t0) / 1000)} s`;
     } else if (m.t === 'loaded') {
-      munis = m.munis.map(([c, n], i) => ({ key: norm(n), label: `${n} (${UF_BY_IBGE[Math.floor(c / 100000)] || '?'})` }));
+      munis = m.munis.map(([c, n]) => ({ key: norm(n), label: `${n} (${UF_BY_IBGE[Math.floor(c / 100000)] || '?'})` }));
       muniSel.clear(); renderMunis(); buildUfs(m.ufs);
       $('bar').hidden = true; $('work').hidden = false; $('release').hidden = false;
-      $('status').textContent = `${fmt(m.rows)} linhas carregadas em ${(m.ms / 1000).toFixed(1)} s.`;
+      setStatus(`${fmt(m.rows)} linhas carregadas ${m.cached ? 'dos dados salvos' : ''} em ${(m.ms / 1000).toFixed(1)} s.`);
       run();
     } else if (m.t === 'result') {
       if (m.id !== seq) return;
       $('count').textContent = fmt(m.count);
       $('pct').textContent = `${(100 * m.count / m.total).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}% do total`;
       $('ms').textContent = `${fmt(m.total)} no total • filtrado em ${m.ms} ms`;
-    } else if (m.t === 'released') {
-      $('work').hidden = true; $('release').hidden = true; $('file').value = '';
-      $('status').textContent = 'Dados liberados da memória.';
-    } else if (m.t === 'error') {
-      $('bar').hidden = true; $('status').textContent = 'Erro: ' + m.msg;
-    }
+    } else if (m.t === 'cache') {
+      cacheInfo = m.meta; showCache(); busy(`Dados salvos encontrados (${m.meta.file.name}). Carregando…`);
+      worker.postMessage({ t: 'usecache' });
+    } else if (m.t === 'saving') $('status').textContent = base + ' Salvando para a próxima vez…';
+    else if (m.t === 'saved') { cacheInfo = { saved: true }; showCache(); $('status').textContent = base + ' Salvo para a próxima vez.'; }
+    else if (m.t === 'savefail') $('status').textContent = base + ' (não foi possível salvar: ' + m.msg + ')';
+    else if (m.t === 'cleared') { cacheInfo = null; showCache(); setStatus('Dados salvos apagados.'); }
+    else if (m.t === 'released') { $('work').hidden = true; $('release').hidden = true; $('file').value = ''; setStatus('Dados liberados da memória.'); }
+    else if (m.t === 'error') { $('bar').hidden = true; setStatus('Erro: ' + m.msg); }
   };
-  t0 = performance.now();
-  $('work').hidden = true; $('bar').hidden = false; $('bar').value = 0; $('status').textContent = 'Lendo… 0%';
+  worker.postMessage({ t: 'init' });
+}
+function start(file) {
+  busy('Lendo… 0%'); $('bar').value = 0;
   worker.postMessage({ t: 'load', file }); // the worker reads the stream once and drops the file
 }
 
 buildFilters();
 $('file').onchange = (e) => e.target.files[0] && start(e.target.files[0]);
 $('release').onclick = () => worker.postMessage({ t: 'release' });
+$('usecache').onclick = () => { busy('Carregando dados salvos…'); worker.postMessage({ t: 'usecache' }); };
+$('delcache').onclick = () => worker.postMessage({ t: 'clearcache' });
+initWorker();
 $('f').addEventListener('input', (e) => { if (e.target.id !== 'mq') schedule(); });
 $('mq').addEventListener('input', suggest);
 $('mq').addEventListener('keydown', (e) => { if (e.key === 'Enter') { const b = $('sug').querySelector('button'); if (b) addMuni(+b.dataset.i); } });
