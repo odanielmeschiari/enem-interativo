@@ -1,0 +1,5 @@
+# Never commit the real dataset or generated patches
+*.csv
+!sample/sample.csv
+data/
+*.patch

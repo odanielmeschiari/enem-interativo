@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Explorador ENEM 2025</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header><h1>Explorador ENEM 2025</h1></header>
+<main>
+  <section id="load" class="card">
+    <h2>1. Escolha o arquivo de dados</h2>
+    <input type="file" id="file" accept=".csv">
+    <progress id="bar" value="0" max="1" hidden></progress>
+    <p id="status">Nenhum arquivo carregado.</p>
+    <button id="release" hidden>Liberar dados da memória</button>
+  </section>
+  <section id="work" class="card" hidden>
+    <h2>2. Filtros</h2>
+    <label>Redação mínima <input type="number" id="minRed" min="0" max="1000" step="20" value="0"></label>
+    <label>Matemática mínima <input type="number" id="minMt" min="0" max="1000" step="10" value="0"></label>
+    <p class="big"><span id="count">–</span> <small>candidatos</small></p>
+    <p id="ms"></p>
+  </section>
+</main>
+<script src="app.js"></script>
+</body>
+</html>
