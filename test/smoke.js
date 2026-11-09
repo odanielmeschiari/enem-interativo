@@ -13,5 +13,7 @@ const send = (d) => new Promise((r) => { waiting = r; self.onmessage({ data: d }
   await q({ ranges: { NU_NOTA_REDACAO: [800, 1000] } });
   await q({ ranges: { NU_NOTA_MT: [500, 1000] }, ufs: ['SP', 'RJ'] });
   await q({ cats: { TP_PRESENCA_MT: [1], TP_LINGUA: [1] } });
+  await q({ muni: [0] }); // first municipality seen (Rio de Janeiro)
+  await q({ ranges: { NU_SEQUENCIAL: [3148322, 3148322] } }); // exact id
   await q({ ranges: { NU_NOTA_MT: [0, 1000] } }); // excludes absent (NaN)
 })();

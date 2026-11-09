@@ -124,7 +124,7 @@ async function load(file) {
   for (const p of plan) if (p && p.a) cols[p.name] = p.a.slice(0, n);
   plan = []; // free the grown buffers: only the trimmed columns remain
   ready = true;
-  postMessage({ t: 'loaded', rows: n, ufs: ufNames, ms: Math.round(performance.now() - t0) });
+  postMessage({ t: 'loaded', rows: n, ufs: ufNames, munis: dicts[1].codes.map((c, i) => [c, dicts[1].names[i]]), ms: Math.round(performance.now() - t0) });
 }
 function filter(q) {
   const t0 = performance.now();
@@ -132,11 +132,14 @@ function filter(q) {
   for (const k in q.ranges || {}) if (cols[k]) { rc.push(cols[k]); lo.push(q.ranges[k][0]); hi.push(q.ranges[k][1]); }
   for (const k in q.cats || {}) if (cols[k]) { cc.push(cols[k]); cm.push(q.cats[k].reduce((m, v) => m | (1 << v), 0)); }
   if (q.ufs && q.ufs.length) { cc.push(cols.SG_UF_PROVA); cm.push(q.ufs.reduce((m, u) => m | (1 << ufNames.indexOf(u)), 0)); }
+  const mset = q.muni && q.muni.length ? new Uint8Array(65536) : null, mc = cols.NO_MUNICIPIO_PROVA;
+  if (mset) for (const i of q.muni) mset[i] = 1;
   const uf = cols.SG_UF_PROVA, perUf = new Uint32Array(32), nr = rc.length, nc = cc.length;
   let count = 0;
   outer: for (let i = 0; i < n; i++) {
     for (let k = 0; k < nr; k++) { const v = rc[k][i]; if (!(v >= lo[k] && v <= hi[k])) continue outer; } // NaN fails
     for (let k = 0; k < nc; k++) { const m = cc[k][i]; if (m > 30 || !((cm[k] >>> m) & 1)) continue outer; }
+    if (mset && !mset[mc[i]]) continue;
     count++; const u = uf[i]; if (u < 32) perUf[u]++;
   }
   postMessage({ t: 'result', id: q.id, count, total: n, ms: +(performance.now() - t0).toFixed(1), perUf: Array.from(perUf.subarray(0, ufNames.length)), ufs: ufNames });

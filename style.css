@@ -12,3 +12,19 @@ button { background:var(--bg); color:var(--fg); border:1px solid var(--line); bo
 .big { font-size:56px; font-weight:700; margin:8px 0 0; color:var(--acc); } .big small { font-size:18px; color:var(--mut); font-weight:400; }
 #ms { color:var(--mut); margin:0; }
 [hidden] { display:none !important; }
+main { max-width:1200px; }
+.grid { display:grid; grid-template-columns:1fr 340px; gap:16px; align-items:start; }
+.result { position:sticky; top:16px; } #pct { font-size:20px; margin:0; } 
+h3 { margin:18px 0 8px; font-size:14px; color:var(--fg); }
+h2 button { float:right; font-size:13px; }
+.chips { display:flex; flex-wrap:wrap; gap:6px; }
+.chips label, .chip { margin:0; padding:4px 10px; border:1px solid var(--line); border-radius:999px; cursor:pointer; user-select:none; }
+.chips label:has(input:checked), .chip { background:#1f6feb33; border-color:#1f6feb; color:var(--fg); }
+.chips input { display:none; }
+.scores { display:grid; grid-template-columns:repeat(auto-fill, minmax(280px,1fr)); gap:6px 16px; }
+.scores div { display:flex; align-items:center; gap:6px; color:var(--mut); } .scores span { flex:1; }
+.scores input { width:78px; }
+.ac { position:relative; } .ac input { width:100%; max-width:420px; background:var(--bg); color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:8px; }
+#sug { position:absolute; z-index:5; background:var(--card); border:1px solid var(--line); border-radius:6px; min-width:320px; } #sug:empty { display:none; }
+#sug button { display:block; width:100%; text-align:left; border:0; border-radius:0; padding:8px 12px; } #sug button:hover { background:#1f6feb33; }
+@media (max-width:900px) { .grid { grid-template-columns:1fr; } }
