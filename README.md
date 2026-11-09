@@ -34,3 +34,6 @@ node test/smoke.js /path/to/enem.csv
 - `sample/sample.csv`: tiny fake sample for tests
 - `AGENTS.md`: rules for AI agents working on this repo
 - Changes are delivered as patch files: `git apply 000N-name.patch`
+
+## Credits
+- Brazil map: [Simplemaps](https://simplemaps.com) SVG (free for commercial use, attribution appreciated), in `assets/brazil.svg`.

@@ -12,24 +12,48 @@ const GROUPS = [ // categorical filters; labels follow the ENEM data dictionary
   { id: 'loc', title: 'Localização da escola', keys: ['TP_LOCALIZACAO_ESC'], opts: [[1, 'Urbana'], [2, 'Rural']] },
   { id: 'red', title: 'Situação da redação', keys: ['TP_STATUS_REDACAO'], opts: [[1, 'Sem problemas'], [2, 'Anulada'], [3, 'Cópia do texto motivador'], [4, 'Em branco'], [6, 'Fuga ao tema'], [7, 'Fuga do tipo textual'], [8, 'Texto insuficiente'], [9, 'Parte desconectada']] },
 ];
-const TILES = { RR: [2, 0], AP: [4, 0], AM: [1, 1], PA: [3, 1], MA: [4, 1], PI: [5, 1], CE: [6, 1], RN: [7, 1], AC: [0, 2], RO: [1, 2], MT: [2, 2], TO: [3, 2], BA: [5, 2], PE: [6, 2], PB: [7, 2],
-  MS: [2, 3], GO: [3, 3], DF: [4, 3], MG: [5, 3], AL: [6, 3], SE: [7, 3], PR: [3, 4], SP: [4, 4], RJ: [5, 4], ES: [6, 4], SC: [3, 5], RS: [3, 6] }; // stylized tile map: col,row
 let worker, seq = 0, timer, t0, munis = [], muniSel = new Map(), ufSel = new Set();
 const f1 = (x) => x.toLocaleString('pt-BR', { maximumFractionDigits: 1 });
 const compact = (x) => x >= 1e6 ? f1(x / 1e6) + ' mi' : x >= 1e3 ? Math.round(x / 1e3) + ' mil' : String(x);
 
-function buildMap() {
-  $('map').innerHTML = Object.entries(TILES).map(([u, [c, r]]) => `<button type="button" data-uf="${u}" style="left:${c * 12.5}%;top:${r * 14.2857}%"><b>${u}</b><small></small></button>`).join('');
+const SMALL = new Set(['DF', 'SE', 'AL', 'PB', 'RN', 'ES']); // too small to print a value inside
+const SVGNS = 'http://www.w3.org/2000/svg';
+let mapEls = null, lastResult = null;
+async function buildMap() {
   $('metric').innerHTML = '<option value="-1">Colorir por: nº de candidatos</option>' + SCORES.map(([, l], k) => `<option value="${k}">Colorir por: média de ${l}</option>`).join('');
+  try {
+    const r = await fetch('assets/brazil.svg');
+    if (!r.ok) throw new Error(r.status);
+    const txt = await r.text();
+    $('map').innerHTML = txt.slice(txt.indexOf('<svg')); // our own bundled file: Simplemaps Brazil, one <path id="BRxx"> per UF
+  } catch { $('map').innerHTML = '<p class="mut">Mapa indisponível (assets/brazil.svg). Abra o app pelo ./run.sh.</p>'; return; }
+  const svg = $('map').firstElementChild;
+  svg.setAttribute('viewBox', '0 0 1000 912'); svg.removeAttribute('width'); svg.removeAttribute('height');
+  mapEls = {};
+  const mk = (cls, u, x, y) => { const t = document.createElementNS(SVGNS, 'text'); t.setAttribute('class', cls); t.setAttribute('x', x); t.setAttribute('y', y); t.dataset.uf = u; svg.appendChild(t); return t; };
+  svg.querySelectorAll('#features path').forEach((p) => {
+    const u = p.id.slice(2), c = svg.querySelector(`#label_points circle[id="${p.id}"]`);
+    if (!c) return;
+    const x = +c.getAttribute('cx'), y = +c.getAttribute('cy'), title = document.createElementNS(SVGNS, 'title');
+    p.dataset.uf = u; p.appendChild(title);
+    mapEls[u] = { p, title, name: c.getAttribute('class'), a: mk('lc', u, x, y - 6), b: mk('lv', u, x, y + 18) };
+    mapEls[u].a.textContent = u;
+  });
+  for (const id of ['points', 'label_points']) svg.querySelector('#' + id)?.remove();
+  if (lastResult) renderMap(lastResult);
 }
 function renderMap(m) {
+  lastResult = m;
+  if (!mapEls) return;
   const mean = +$('metric').value >= 0, vals = mean ? m.perUfMean : m.perUf, ok = vals.filter((v) => v);
   const lo = Math.min(...ok), hi = Math.max(...ok);
-  for (const b of $('map').children) {
-    const i = m.ufs.indexOf(b.dataset.uf), v = i < 0 ? null : vals[i];
-    b.classList.toggle('sel', ufSel.has(b.dataset.uf));
-    b.style.background = v ? `hsl(140 ${50 + 15 * ((v - lo) / (hi - lo || 1))}% ${14 + 34 * ((v - lo) / (hi - lo || 1))}%)` : '#21262d';
-    b.lastChild.textContent = v ? (mean ? Math.round(v) : compact(v)) : '–';
+  for (const u in mapEls) {
+    const e = mapEls[u], i = m.ufs.indexOf(u), v = i < 0 ? null : vals[i], t = v ? (v - lo) / (hi - lo || 1) : 0;
+    e.p.classList.toggle('sel', ufSel.has(u));
+    if (ufSel.has(u)) e.p.parentNode.appendChild(e.p); // raise so the highlight border is not hidden by neighbours
+    e.p.style.fill = v ? `hsl(140 ${50 + 15 * t}% ${14 + 34 * t}%)` : '#21262d';
+    e.b.textContent = v && !SMALL.has(u) ? (mean ? Math.round(v) : compact(v)) : '';
+    e.title.textContent = `${e.name}: ${v ? (mean ? 'média ' + f1(v) : fmt(v) + ' candidatos') : 'sem dados'}`;
   }
   $('legend').innerHTML = ok.length ? `<span>${mean ? Math.round(lo) : compact(lo)}</span><i></i><span>${mean ? Math.round(hi) : compact(hi)}</span>` : '';
 }
@@ -176,7 +200,7 @@ $('sort').innerHTML = '<option value="">Ordem do arquivo</option>' + SCORES.flat
 $('sort').onchange = () => { pageOff = 0; requestPage(); };
 $('prev').onclick = () => { pageOff = Math.max(0, pageOff - PAGE); requestPage(); };
 $('next').onclick = () => { pageOff += PAGE; requestPage(); };
-$('map').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; const u = b.dataset.uf; ufSel.has(u) ? ufSel.delete(u) : ufSel.add(u); schedule(); });
+$('map').addEventListener('click', (e) => { const b = e.target.closest('[data-uf]'); if (!b) return; const u = b.dataset.uf; ufSel.has(u) ? ufSel.delete(u) : ufSel.add(u); schedule(); });
 $('metric').onchange = schedule;
 $('file').onchange = (e) => e.target.files[0] && start(e.target.files[0]);
 $('release').onclick = () => worker.postMessage({ t: 'release' });
