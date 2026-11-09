@@ -51,7 +51,7 @@ function renderMap(m) {
     const e = mapEls[u], i = m.ufs.indexOf(u), v = i < 0 ? null : vals[i], t = v ? (v - lo) / (hi - lo || 1) : 0;
     e.p.classList.toggle('sel', ufSel.has(u));
     if (ufSel.has(u)) e.p.parentNode.appendChild(e.p); // raise so the highlight border is not hidden by neighbours
-    e.p.style.fill = v ? (t < 0.5 ? `color-mix(in srgb, #2aa7a1 ${Math.round(200 * t)}%, #2b3170)` : `color-mix(in srgb, #ffc83d ${Math.round(200 * t - 100)}%, #2aa7a1)`) : '#1a1e42'; // indigo > teal > gold
+    e.p.style.fill = v ? `hsl(140 ${50 + 15 * t}% ${14 + 34 * t}%)` : '#21262d';
     e.b.textContent = v && !SMALL.has(u) ? (mean ? Math.round(v) : compact(v)) : '';
     e.title.textContent = `${e.name}: ${v ? (mean ? 'média ' + f1(v) : fmt(v) + ' candidatos') : 'sem dados'}`;
   }
@@ -92,7 +92,7 @@ function card(r) {
   if (r.pres.includes(2)) warn.push('Eliminado'); else if (out) warn.push(`Faltou em ${out} prova${out > 1 ? 's' : ''}`);
   if (r.red !== 255 && r.red !== 1) warn.push(`Redação: ${(red[r.red] || 'problema').toLowerCase()}`);
   const bar = (abbr, x) => x === null ? `<div class="bar"><span>${abbr}</span><div></div><b>–</b></div>`
-    : `<div class="bar"><span>${abbr}</span><div><i style="width:${x / 10}%;background:hsl(${Math.round(260 - x * 0.21)} 80% 62%)"></i></div><b>${f1(x)}</b></div>`;
+    : `<div class="bar"><span>${abbr}</span><div><i style="width:${x / 10}%;background:hsl(${Math.round(x * 0.13)} 70% 48%)"></i></div><b>${f1(x)}</b></div>`;
   const comps = r.n.slice(5).map((x, i) => x === null ? '' : `<small>C${i + 1}: ${x}</small>`).join(' ');
   return `<div class="cand"><div class="head"><b>Candidato ${r.id}</b><span>${r.muni || '—'} · ${r.uf || '—'}</span></div>` +
     `<div class="tags">${tags.filter(Boolean).map((t) => `<i>${t}</i>`).join('')}${warn.map((t) => `<i class="warn">${t}</i>`).join('')}</div>` +
@@ -172,7 +172,6 @@ function initWorker() {
     } else if (m.t === 'result') {
       if (m.id !== seq) return;
       $('count').textContent = fmt(m.count);
-      $('shareb').style.width = Math.max(0.5, 100 * m.count / m.total) + '%';
       $('pct').textContent = `${(100 * m.count / m.total).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}% do total`;
       $('ms').textContent = `${fmt(m.total)} no total • filtrado em ${m.ms} ms`;
       renderStats(m.stats); renderMap(m);
