@@ -28,6 +28,9 @@ node test/smoke.js                 # uses sample/sample.csv
 node test/smoke.js /path/to/enem.csv
 ```
 
+## Fonts
+Inter is bundled (`assets/fonts`). Open Sans and Rubik are not in the repo: download the variable TTFs from Google Fonts, save them as `assets/fonts/OpenSans.ttf` and `assets/fonts/Rubik.ttf` (or install both fonts on the system). Without them the page falls back to a system font.
+
 ## Layout
 - `index.html`, `style.css`, `app.js`: UI (Portuguese)
 - `worker.js`: streaming CSV parser and filter loop (Web Worker)

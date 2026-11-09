@@ -3,8 +3,8 @@ const $ = (id) => document.getElementById(id);
 const fmt = (x) => x.toLocaleString('pt-BR');
 const norm = (s) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 const UF_BY_IBGE = { 11: 'RO', 12: 'AC', 13: 'AM', 14: 'RR', 15: 'PA', 16: 'AP', 17: 'TO', 21: 'MA', 22: 'PI', 23: 'CE', 24: 'RN', 25: 'PB', 26: 'PE', 27: 'AL', 28: 'SE', 29: 'BA', 31: 'MG', 32: 'ES', 33: 'RJ', 35: 'SP', 41: 'PR', 42: 'SC', 43: 'RS', 50: 'MS', 51: 'MT', 52: 'GO', 53: 'DF' };
-const SCORES = [['NU_NOTA_CN', 'Ciências da Natureza', 1000], ['NU_NOTA_CH', 'Ciências Humanas', 1000], ['NU_NOTA_LC', 'Linguagens e Códigos', 1000], ['NU_NOTA_MT', 'Matemática', 1000], ['NU_NOTA_REDACAO', 'Redação', 1000],
-  ...[1, 2, 3, 4, 5].map((i) => ['NU_NOTA_COMP' + i, 'Competência ' + i, 200])];
+const AREAS = [['NU_NOTA_CN', 'Ciências da Natureza', 1000], ['NU_NOTA_CH', 'Ciências Humanas', 1000], ['NU_NOTA_LC', 'Linguagens e Códigos', 1000], ['NU_NOTA_MT', 'Matemática', 1000], ['NU_NOTA_REDACAO', 'Redação', 1000]];
+const SCORES = [...AREAS, ...[1, 2, 3, 4, 5].map((i) => ['NU_NOTA_COMP' + i, 'Redação: competência ' + i, 200])]; // filters only
 const GROUPS = [ // categorical filters; labels follow the ENEM data dictionary
   { id: 'pres', title: 'Presença (em todas as provas)', keys: ['TP_PRESENCA_CN', 'TP_PRESENCA_CH', 'TP_PRESENCA_LC', 'TP_PRESENCA_MT'], opts: [[1, 'Presente'], [0, 'Faltou'], [2, 'Eliminado']] },
   { id: 'lin', title: 'Língua estrangeira', keys: ['TP_LINGUA'], opts: [[0, 'Inglês'], [1, 'Espanhol']] },
@@ -20,7 +20,7 @@ const SMALL = new Set(['DF', 'SE', 'AL', 'PB', 'RN', 'ES']); // too small to pri
 const SVGNS = 'http://www.w3.org/2000/svg';
 let mapEls = null, lastResult = null;
 async function buildMap() {
-  $('metric').innerHTML = '<option value="-1">Colorir por: nº de candidatos</option>' + SCORES.map(([, l], k) => `<option value="${k}">Colorir por: média de ${l}</option>`).join('');
+  $('metric').innerHTML = '<option value="-1">Colorir por: nº de candidatos</option>' + AREAS.map(([, l], k) => `<option value="${k}">Colorir por: média de ${l}</option>`).join('');
   try {
     const r = await fetch('assets/brazil.svg');
     if (!r.ok) throw new Error(r.status);
@@ -51,7 +51,7 @@ function renderMap(m) {
     const e = mapEls[u], i = m.ufs.indexOf(u), v = i < 0 ? null : vals[i], t = v ? (v - lo) / (hi - lo || 1) : 0;
     e.p.classList.toggle('sel', ufSel.has(u));
     if (ufSel.has(u)) e.p.parentNode.appendChild(e.p); // raise so the highlight border is not hidden by neighbours
-    e.p.style.fill = v ? `hsl(140 ${50 + 15 * t}% ${14 + 34 * t}%)` : '#21262d';
+    e.p.style.fill = v ? `hsl(215 ${55 + 20 * t}% ${16 + 38 * t}%)` : '#1a2547';
     e.b.textContent = v && !SMALL.has(u) ? (mean ? Math.round(v) : compact(v)) : '';
     e.title.textContent = `${e.name}: ${v ? (mean ? 'média ' + f1(v) : fmt(v) + ' candidatos') : 'sem dados'}`;
   }
@@ -60,15 +60,24 @@ function renderMap(m) {
   $('legend').innerHTML = ok.length ? `<span>${mean ? Math.round(lo) : compact(lo)}</span><i></i><span>${mean ? Math.round(hi) : compact(hi)}</span>` : '';
 }
 const PAGE = 12, LBL = (id) => Object.fromEntries(GROUPS.find((g) => g.id === id).opts);
+const ALL = ['CN', 'CH', 'LC', 'MT', 'REDACAO'], atLeast = (n, ks = ALL) => Object.fromEntries(ks.map((k) => ['NU_NOTA_' + k, [n, '']]));
 const PRESETS = [
   ['Redação nota 1000', { ranges: { NU_NOTA_REDACAO: [1000, ''] } }],
+  ['Redação ≥ 900', { ranges: { NU_NOTA_REDACAO: [900, ''] } }],
   ['Matemática ≥ 850', { ranges: { NU_NOTA_MT: [850, ''] } }],
-  ['Todas as notas ≥ 700', { ranges: Object.fromEntries(['CN', 'CH', 'LC', 'MT', 'REDACAO'].map((k) => ['NU_NOTA_' + k, [700, '']])) }],
+  ['Natureza e Matemática ≥ 800', { ranges: atLeast(800, ['CN', 'MT']) }],
+  ['Todas as notas ≥ 700', { ranges: atLeast(700) }],
+  ['Todas as notas ≥ 800', { ranges: atLeast(800) }],
   ['Escolas federais', { groups: { dep: [1] } }],
+  ['Escolas públicas', { groups: { dep: [1, 2, 3] } }],
+  ['Escolas públicas com redação ≥ 900', { ranges: { NU_NOTA_REDACAO: [900, ''] }, groups: { dep: [1, 2, 3] } }],
   ['Escolas privadas urbanas', { groups: { dep: [4], loc: [1] } }],
+  ['Escolas rurais', { groups: { loc: [2] } }],
+  ['Fez prova de espanhol', { groups: { lin: [1] } }],
   ['Redação zerada (presentes)', { ranges: { NU_NOTA_REDACAO: [0, 0] }, groups: { pres: [1] } }],
-  ['Norte', { ufs: ['AC', 'AP', 'AM', 'PA', 'RO', 'RR', 'TO'] }], ['Nordeste', { ufs: ['AL', 'BA', 'CE', 'MA', 'PB', 'PE', 'PI', 'RN', 'SE'] }],
-  ['Centro-Oeste', { ufs: ['DF', 'GO', 'MT', 'MS'] }], ['Sudeste', { ufs: ['ES', 'MG', 'RJ', 'SP'] }], ['Sul', { ufs: ['PR', 'RS', 'SC'] }],
+  ['Redação anulada ou em branco', { groups: { red: [2, 4] } }],
+  ['Faltou em todas as provas', { groups: { pres: [0] } }],
+  ['Eliminados', { groups: { pres: [2] } }],
 ];
 let pageOff = 0, pageTotal = 0;
 function applyPreset(p) {
@@ -81,6 +90,15 @@ function requestPage() {
   const [sort, dir] = $('sort').value.split(':');
   worker.postMessage({ t: 'page', id: seq, sort: sort || null, dir, offset: pageOff, limit: PAGE });
 }
+const TILES = [[3, 'Matemática'], [1, 'Humanas'], [2, 'Linguagens'], [0, 'Natureza'], [4, 'Redação']]; // [index in r.n, label]; same order as the weight inputs
+const hue = (x) => Math.round(120 * Math.min(1, Math.max(0, (x - 300) / 500))); // 300 or less = red, 800 or more = green
+let pageRows = [], W = [1, 1, 1, 1, 1];
+function averages(n) { // both are null unless every needed score exists; weight 0 leaves a score out
+  const simple = n.every((x) => x !== null) ? n.reduce((a, b) => a + b, 0) / n.length : null;
+  let s = 0, t = 0;
+  for (let i = 0; i < n.length; i++) if (W[i] > 0) { if (n[i] === null) return [simple, null]; s += W[i] * n[i]; t += W[i]; }
+  return [simple, t > 0 ? s / t : null];
+}
 function card(r) {
   const dep = LBL('dep'), loc = LBL('loc'), lin = LBL('lin'), red = LBL('red'), tags = [];
   if (r.dep !== 255) tags.push(`Escola ${(dep[r.dep] || '').toLowerCase()}`);
@@ -91,29 +109,37 @@ function card(r) {
   const warn = [];
   if (r.pres.includes(2)) warn.push('Eliminado'); else if (out) warn.push(`Faltou em ${out} prova${out > 1 ? 's' : ''}`);
   if (r.red !== 255 && r.red !== 1) warn.push(`Redação: ${(red[r.red] || 'problema').toLowerCase()}`);
-  const bar = (abbr, x) => x === null ? `<div class="bar"><span>${abbr}</span><div></div><b>–</b></div>`
-    : `<div class="bar"><span>${abbr}</span><div><i style="width:${x / 10}%;background:hsl(${Math.round(x * 0.13)} 70% 48%)"></i></div><b>${f1(x)}</b></div>`;
-  const comps = r.n.slice(5).map((x, i) => x === null ? '' : `<small>C${i + 1}: ${x}</small>`).join(' ');
+  const [avg, wavg] = averages(r.n), num = (x) => x === null ? '–' : f1(x);
+  const tile = ([i, l]) => `<div class="tile">${r.n[i] === null ? '<div class="dot off">–</div>' : `<div class="dot" style="--h:${hue(r.n[i])}">${f1(r.n[i])}</div>`}<small>${l}</small></div>`;
   return `<div class="cand"><div class="head"><b>Candidato ${r.id}</b><span>${r.muni || '—'} · ${r.uf || '—'}</span></div>` +
     `<div class="tags">${tags.filter(Boolean).map((t) => `<i>${t}</i>`).join('')}${warn.map((t) => `<i class="warn">${t}</i>`).join('')}</div>` +
-    ['CN', 'CH', 'LC', 'MT'].map((a, k) => bar(a, r.n[k])).join('') +
-    `<div class="red"><div><small>Redação</small><div class="bigscore">${r.n[4] === null ? '–' : r.n[4]}</div></div><div>${comps}</div></div></div>`;
+    `<div class="avgs"><div><small>Média simples</small><b>${num(avg)}</b></div><div><small>Média ponderada</small><b>${num(wavg)}</b></div></div>` +
+    `<div class="tiles">${TILES.map(tile).join('')}</div></div>`;
+}
+function renderCards() {
+  for (const x of $('weights').querySelectorAll('input')) W[+x.dataset.i] = Math.max(0, +x.value || 0);
+  $('cards').innerHTML = pageRows.length ? pageRows.map(card).join('') : '<p class="mut">Nenhum candidato com esses filtros.</p>';
 }
 function renderPage(m) {
   const avail = $('sort').value ? Math.min(m.total, 200) : m.total;
-  $('cards').innerHTML = m.rows.length ? m.rows.map(card).join('') : '<p class="mut">Nenhum candidato com esses filtros.</p>';
+  pageRows = m.rows; renderCards();
   pageTotal = avail;
   $('pageinfo').textContent = avail ? `${fmt(pageOff + 1)}–${fmt(pageOff + m.rows.length)} de ${fmt(avail)}` : '';
   $('prev').disabled = pageOff === 0; $('next').disabled = pageOff + PAGE >= avail;
 }
+const OPS = [['mean', 'Média', 'média'], ['med', 'Mediana', 'mediana'], ['max', 'Maior nota', 'máx'], ['min', 'Menor nota', 'mín'], ['p25', '1º quartil', '1º quartil'], ['p75', '3º quartil', '3º quartil'], ['sd', 'Desvio padrão', 'desvio']];
+let lastStats = [];
 function renderStats(st) {
+  lastStats = st;
+  const op = $('statop').value, hi = OPS.find((o) => o[0] === op);
   $('statgrid').innerHTML = st.map((s, k) => {
-    const label = SCORES[k][1];
+    const label = AREAS[k][1];
     if (!s.n) return `<div class="stat"><h4>${label}</h4><p class="mut">Sem dados</p></div>`;
     const top = Math.max(...s.bins);
     const bars = s.bins.map((b, i) => `<i style="height:${Math.max(3, 100 * b / top)}%" title="${i * s.w}–${i * s.w + s.w - 1}: ${fmt(b)}"></i>`).join('');
-    return `<div class="stat"><h4>${label}</h4><div class="mean">${f1(s.mean)}</div><div class="hist">${bars}</div>` +
-      `<p>mediana ${s.med} • mín ${f1(s.min)} • máx ${f1(s.max)}<br>quartis ${s.p25}–${s.p75} • desvio ${f1(s.sd)}<br>${fmt(s.n)} notas</p></div>`;
+    const rest = OPS.filter((o) => o[0] !== op).map((o) => `${o[2]} ${f1(s[o[0]])}`).join(' • ');
+    return `<div class="stat"><h4>${label}</h4><div class="mean">${f1(s[op])} <small>${hi[2]}</small></div><div class="hist">${bars}</div>` +
+      `<p>${rest}<br>${fmt(s.n)} notas</p></div>`;
   }).join('');
 }
 
@@ -198,7 +224,11 @@ function start(file) {
 buildFilters(); buildMap();
 $('presets').innerHTML = PRESETS.map(([l], i) => `<button type="button" data-i="${i}">${l}</button>`).join('');
 $('presets').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) applyPreset(PRESETS[+b.dataset.i][1]); });
-$('sort').innerHTML = '<option value="">Ordem do arquivo</option>' + SCORES.flatMap(([k, l]) => [`<option value="${k}:desc">Maior ${l}</option>`, `<option value="${k}:asc">Menor ${l}</option>`]).join('');
+$('sort').innerHTML = '<option value="">Ordem do arquivo</option>' + AREAS.flatMap(([k, l]) => [`<option value="${k}:desc">Maior ${l}</option>`, `<option value="${k}:asc">Menor ${l}</option>`]).join('');
+$('weights').innerHTML = '<span>Pesos da média ponderada:</span>' + TILES.map(([i, l]) => `<label>${l} <input type="number" min="0" step="any" value="1" data-i="${i}"></label>`).join('') + '<span>Sem alguma nota, a média fica “–”.</span>';
+$('weights').addEventListener('input', renderCards);
+$('statop').innerHTML = OPS.map(([v, l]) => `<option value="${v}">Destaque: ${l}</option>`).join('');
+$('statop').onchange = () => renderStats(lastStats);
 $('sort').onchange = () => { pageOff = 0; requestPage(); };
 $('prev').onclick = () => { pageOff = Math.max(0, pageOff - PAGE); requestPage(); };
 $('next').onclick = () => { pageOff += PAGE; requestPage(); };

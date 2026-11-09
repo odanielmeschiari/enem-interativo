@@ -168,13 +168,13 @@ async function cacheMeta() {
   finally { db.close(); }
 }
 async function clearCache() { const db = await idb(); try { await tx(db, 'readwrite', (s) => s.clear()); } finally { db.close(); } }
-const SK = ['NU_NOTA_CN', 'NU_NOTA_CH', 'NU_NOTA_LC', 'NU_NOTA_MT', 'NU_NOTA_REDACAO', 'NU_NOTA_COMP1', 'NU_NOTA_COMP2', 'NU_NOTA_COMP3', 'NU_NOTA_COMP4', 'NU_NOTA_COMP5'];
+const SK = ['NU_NOTA_CN', 'NU_NOTA_CH', 'NU_NOTA_LC', 'NU_NOTA_MT', 'NU_NOTA_REDACAO']; // essay competencies are filter-only
 function summarize(k, sum, sq, cn, mn, mx, hist) { // median/quartiles come from a 1-point histogram, never from sorting
   const c = cn[k];
   if (!c) return { n: 0 };
   const h = hist.subarray(k * 1001, k * 1001 + 1001), mean = sum[k] / c;
   const pct = (p) => { let a = 0; for (let v = 0; v <= 1000; v++) { a += h[v]; if (a >= p * c) return v; } return 1000; };
-  const w = k < 5 ? 50 : 20, nb = k < 5 ? 20 : 11, bins = new Array(nb).fill(0);
+  const w = 50, nb = 20, bins = new Array(nb).fill(0);
   for (let v = 0; v <= 1000; v++) if (h[v]) bins[Math.min(nb - 1, Math.floor(v / w))] += h[v];
   return { n: c, mean, sd: Math.sqrt(Math.max(0, sq[k] / c - mean * mean)), min: mn[k], max: mx[k], p25: pct(0.25), med: pct(0.5), p75: pct(0.75), bins, w };
 }
