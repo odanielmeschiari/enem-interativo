@@ -85,8 +85,8 @@ const active = new Set(); // indexes of the selected presets
 const markPresets = () => document.querySelectorAll('#presets button').forEach((b) => b.setAttribute('aria-pressed', active.has(+b.dataset.i)));
 function togglePreset(i) { // the form becomes the merge of all selected presets: score ranges intersect, chips of one group add up (OR, like the chips themselves)
   active.has(i) ? active.delete(i) : active.add(i);
-  const keep = $('nofalta').checked, R = {}, G = {};
-  $('f').reset(); $('nofalta').checked = keep;
+  const kept = [...document.querySelectorAll('input.keep')], was = kept.map((x) => x.checked), R = {}, G = {};
+  $('f').reset(); kept.forEach((x, n) => { x.checked = was[n]; }); // the absence filters survive a preset change
   for (const j of active) {
     const p = PRESETS[j][1];
     for (const [k, [lo, hi]] of Object.entries(p.ranges || {})) {
@@ -188,6 +188,7 @@ function query() {
     if (v.length) for (const k of g.keys) cats[k] = v;
   }
   if ($('nofalta').checked) for (const k of GROUPS.find((g) => g.id === 'pres').keys) cats[k] = (cats[k] || [0, 1, 2]).filter((v) => v !== 0); // no "Faltou" in any exam; ANDs with the presence chips
+  for (const x of document.querySelectorAll('#faltou input:checked')) cats[x.value] = (cats[x.value] || [0, 1, 2]).filter((v) => v === 0); // absent in every checked exam
   return { ranges, cats, ufs: [...ufSel], muni: [...muniSel.keys()], metric: +$('metric').value };
 }
 function run() { worker.postMessage({ t: 'filter', id: ++seq, ...query() }); }
@@ -259,7 +260,7 @@ $('release').onclick = () => worker.postMessage({ t: 'release' });
 $('usecache').onclick = () => { busy('Carregando dados salvos…'); worker.postMessage({ t: 'usecache' }); };
 $('delcache').onclick = () => worker.postMessage({ t: 'clearcache' });
 initWorker();
-$('f').addEventListener('input', (e) => { if (e.target.id === 'nofalta') schedule(); else if (e.target.id !== 'mq') edit(); });
+$('f').addEventListener('input', (e) => { if (e.target.classList.contains('keep')) schedule(); else if (e.target.id !== 'mq') edit(); });
 $('mq').addEventListener('input', suggest);
 $('mq').addEventListener('keydown', (e) => { if (e.key === 'Enter') { const b = $('sug').querySelector('button'); if (b) addMuni(+b.dataset.i); } });
 $('sug').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) addMuni(+b.dataset.i); });
