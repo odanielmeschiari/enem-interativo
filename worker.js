@@ -161,11 +161,12 @@ function announce(ms, cached) {
 }
 // Precompute exact default simple-average ranks once, then reuse them on every filter and page.
 function buildSimpleRanks() {
-  const score = new Float64Array(n), order = new Uint32Array(n);
+  const score = new Float64Array(n), totalHits = new Uint8Array(n), order = new Uint32Array(n);
   for (let i = 0; i < n; i++) {
-    let sum = 0;
+    let sum = 0, hits = 0, complete = true;
     for (const k of SK) { const x = cols[k][i]; sum += x === x ? x : 0; }
-    score[i] = sum / SK.length; order[i] = i;
+    for (const k of HIT_KEYS) { const h = cols[k][i]; if (h === 255) complete = false; else hits += h; }
+    score[i] = sum / SK.length; totalHits[i] = complete ? hits : 255; order[i] = i;
   }
   order.sort((a, b) => score[b] - score[a] || a - b);
   const all = new Uint32Array(n), stateRank = new Uint32Array(n), cityRank = new Uint32Array(n), schoolRank = new Uint32Array(n);
@@ -185,6 +186,7 @@ function buildSimpleRanks() {
     }
     start = end;
   }
+  cols.MEDIA_SIMPLES = score; cols[TOTAL_HITS] = totalHits;
   cols.RANK_AVG_ALL = all; cols.RANK_AVG_STATE = stateRank; cols.RANK_AVG_CITY = cityRank; cols.RANK_AVG_SCHOOL = schoolRank;
 }
 // Cache: only the compact columns (~300 MB) go to IndexedDB, never the raw CSV.
@@ -202,7 +204,7 @@ async function saveCache(file) {
   try {
     await tx(db, 'readwrite', (s) => s.clear());
     for (const k in cols) await tx(db, 'readwrite', (s) => s.put(cols[k], 'col:' + k));
-    const meta = { v: 4, rows: n, cols: Object.keys(cols), ufNames, dicts: dicts.map((d) => ({ names: d.names, codes: d.codes })),
+    const meta = { v: 5, rows: n, cols: Object.keys(cols), ufNames, dicts: dicts.map((d) => ({ names: d.names, codes: d.codes })),
       file: { name: file.name, size: file.size }, savedAt: Date.now() };
     await tx(db, 'readwrite', (s) => s.put(meta, 'meta')); // written last: a partial save is never used
   } finally { db.close(); }
@@ -211,11 +213,11 @@ async function loadCache() {
   const t0 = performance.now(), db = await idb();
   try {
     const meta = await tx(db, 'readonly', (s) => s.get('meta'));
-    if (!meta || ![3, 4].includes(meta.v)) throw new Error('Dados salvos incompatíveis; selecione o CSV novamente.');
+    if (!meta || ![3, 4, 5].includes(meta.v)) throw new Error('Dados salvos incompatíveis; selecione o CSV novamente.');
     const c = {};
     for (const k of meta.cols) c[k] = await tx(db, 'readonly', (s) => s.get('col:' + k));
     cols = c; n = meta.rows; ufNames = meta.ufNames; dicts = meta.dicts; ready = true;
-    if (meta.v === 3) {
+    if (meta.v < 5) {
       postMessage({ t: 'precompute', rows: n }); buildSimpleRanks();
       try { postMessage({ t: 'saving' }); await saveCache(meta.file); postMessage({ t: 'saved' }); }
       catch (err) { postMessage({ t: 'savefail', msg: String(err && err.message || err) }); }
@@ -225,7 +227,7 @@ async function loadCache() {
 }
 async function cacheMeta() {
   const db = await idb();
-  try { const m = await tx(db, 'readonly', (s) => s.get('meta')); return m && [3, 4].includes(m.v) ? { rows: m.rows, file: m.file, savedAt: m.savedAt } : null; }
+  try { const m = await tx(db, 'readonly', (s) => s.get('meta')); return m && [3, 4, 5].includes(m.v) ? { rows: m.rows, file: m.file, savedAt: m.savedAt } : null; }
   finally { db.close(); }
 }
 async function clearCache() { const db = await idb(); try { await tx(db, 'readwrite', (s) => s.clear()); } finally { db.close(); } }
@@ -249,7 +251,6 @@ function filter(q) {
   const mset = q.muni && q.muni.length ? new Uint8Array(65536) : null, mc = cols.NO_MUNICIPIO_PROVA;
   if (mset) for (const i of q.muni) mset[i] = 1;
   const sa = SK.map((k) => cols[k]), ns = SK.length;
-  for (const k of HIT_KEYS) if (q.ranges && q.ranges[k]) { rc.push(cols[k]); lo.push(q.ranges[k][0]); hi.push(q.ranges[k][1]); }
   const sum = new Float64Array(ns), sq = new Float64Array(ns), cn = new Float64Array(ns);
   const mn = new Float64Array(ns).fill(Infinity), mx = new Float64Array(ns).fill(-Infinity), hist = new Uint32Array(ns * 1001);
   let simpleSum = 0, simpleSq = 0, simpleMin = Infinity, simpleMax = -Infinity;
@@ -297,12 +298,14 @@ function row(i) {
     dep: g('TP_DEPENDENCIA_ADM_ESC'), loc: g('TP_LOCALIZACAO_ESC'), lin: g('TP_LINGUA'), red: g('TP_STATUS_REDACAO'),
     pres: ['CN', 'CH', 'LC', 'MT'].map((a) => g('TP_PRESENCA_' + a)), hits: HIT_KEYS.map((k) => { const x = g(k); return x === 255 ? null : x; }), n: SK.map((k) => { const x = g(k); return x === x ? Math.round(x * 10) / 10 : null; }) };
 }
-function hitValue(i, k) { if (k === TOTAL_HITS) { let total = 0; for (const name of HIT_KEYS) { const v = cols[name][i]; if (v === 255) return NaN; total += v; } return total; } const v = cols[k][i]; return v === 255 ? NaN : v; }
+function hitValue(i, k) { const v = cols[k][i]; return v === 255 ? NaN : v; }
 function rankValue(i, key, w = [1, 1, 1, 1, 1]) {
-  if (key === 'avg' || key === 'wavg') { let sum = 0, total = 0; for (let k = 0; k < SK.length; k++) { const weight = key === 'wavg' ? w[k] : 1; if (weight > 0) { const x = cols[SK[k]][i]; sum += weight * (x === x ? x : 0); total += weight; } } return total ? sum / total : NaN; }
+  if (key === 'avg') return cols.MEDIA_SIMPLES[i];
+  if (key === 'wavg') { let sum = 0, total = 0; for (let k = 0; k < SK.length; k++) { const weight = key === 'wavg' ? w[k] : 1; if (weight > 0) { const x = cols[SK[k]][i]; sum += weight * (x === x ? x : 0); total += weight; } } return total ? sum / total : NaN; }
   return cols[key] ? cols[key][i] : NaN;
 }
 function scorer(q) { // sort by an exam score, answer count, or mean
+  if (q.sort === 'avg' || q.sort === 'MEDIA_SIMPLES') return (i) => cols.MEDIA_SIMPLES[i];
   if (HIT_KEYS.includes(q.sort) || q.sort === TOTAL_HITS) return (i) => hitValue(i, q.sort);
   if (cols[q.sort]) { const c = cols[q.sort]; return (i) => c[i]; }
   const a = SK.map((k) => cols[k]), w = q.sort === 'wavg' ? q.w : [1, 1, 1, 1, 1];

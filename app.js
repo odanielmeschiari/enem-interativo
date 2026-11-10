@@ -4,7 +4,10 @@ const fmt = (x) => x.toLocaleString('pt-BR');
 const norm = (s) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 const UF_BY_IBGE = { 11: 'RO', 12: 'AC', 13: 'AM', 14: 'RR', 15: 'PA', 16: 'AP', 17: 'TO', 21: 'MA', 22: 'PI', 23: 'CE', 24: 'RN', 25: 'PB', 26: 'PE', 27: 'AL', 28: 'SE', 29: 'BA', 31: 'MG', 32: 'ES', 33: 'RJ', 35: 'SP', 41: 'PR', 42: 'SC', 43: 'RS', 50: 'MS', 51: 'MT', 52: 'GO', 53: 'DF' };
 const AREAS = [['NU_NOTA_CN', 'Ciências da Natureza', 1000], ['NU_NOTA_CH', 'Ciências Humanas', 1000], ['NU_NOTA_LC', 'Linguagens e Códigos', 1000], ['NU_NOTA_MT', 'Matemática', 1000], ['NU_NOTA_REDACAO', 'Redação', 1000]];
-const SCORES = [...AREAS, ...[1, 2, 3, 4, 5].map((i) => ['NU_NOTA_COMP' + i, 'Redação: competência ' + i, 200])]; // filters only
+const COMPETENCIES = [1, 2, 3, 4, 5].map((i) => ['NU_NOTA_COMP' + i, 'Competência ' + i, 200]);
+const HIT_FILTERS = [['ACERTOS_CN', 'Acertos: Natureza', 45], ['ACERTOS_CH', 'Acertos: Humanas', 45], ['ACERTOS_LC', 'Acertos: Linguagens', 45], ['ACERTOS_MT', 'Acertos: Matemática', 45]];
+const DISCIPLINE_FILTERS = [...AREAS, ['MEDIA_SIMPLES', 'Média simples', 1000], ...HIT_FILTERS, ['ACERTOS_TOTAL', 'Total de acertos', 180]];
+const FILTER_FIELDS = [...DISCIPLINE_FILTERS, ...COMPETENCIES];
 const GROUPS = [ // categorical filters; labels follow the ENEM data dictionary
   { id: 'pres', title: 'Presença (em todas as provas)', keys: ['TP_PRESENCA_CN', 'TP_PRESENCA_CH', 'TP_PRESENCA_LC', 'TP_PRESENCA_MT'], opts: [[1, 'Presente'], [0, 'Faltou'], [2, 'Eliminado']] },
   { id: 'lin', title: 'Língua estrangeira', keys: ['TP_LINGUA'], opts: [[0, 'Inglês'], [1, 'Espanhol']] },
@@ -181,9 +184,10 @@ function renderStats(st, hitStats = lastHitStats, simpleStats = lastSimpleStats)
 }
 
 function buildFilters() {
-  $('scores').innerHTML = SCORES.map(([k, label, max]) =>
-    `<div><span>${label}</span><input type="number" id="${k}_lo" min="0" max="${max}" placeholder="0"><input type="number" id="${k}_hi" min="0" max="${max}" placeholder="${max}"></div>`).join('') +
-    ['CN', 'CH', 'LC', 'MT'].map((a, i) => `<div><span>Acertos: ${['Natureza', 'Humanas', 'Linguagens', 'Matemática'][i]}</span><input type="number" id="ACERTOS_${a}_lo" min="0" max="45" placeholder="0"><input type="number" id="ACERTOS_${a}_hi" min="0" max="45" placeholder="45"></div>`).join('');
+  const fields = (items) => items.map(([k, label, max]) =>
+    `<div><span>${label}</span><input type="number" step="any" id="${k}_lo" min="0" max="${max}" placeholder="0"><input type="number" step="any" id="${k}_hi" min="0" max="${max}" placeholder="${max}"></div>`).join('');
+  $('scores').innerHTML = fields(DISCIPLINE_FILTERS);
+  $('competencies').innerHTML = fields(COMPETENCIES);
   $('groups').innerHTML = GROUPS.map((g) => `<h3>${g.title}</h3><div class="chips" id="g_${g.id}">` +
     g.opts.map(([v, l]) => `<label><input type="checkbox" value="${v}">${l}</label>`).join('') + '</div>').join('');
 }
@@ -201,7 +205,7 @@ function addMuni(i) { muniSel.set(i, munis[i].label); $('mq').value = ''; $('sug
 
 function query() {
   const ranges = {}, cats = {};
-  for (const [k, , max] of [...SCORES, ...['CN', 'CH', 'LC', 'MT'].map((a) => ['ACERTOS_' + a, '', 45])]) {
+  for (const [k, , max] of FILTER_FIELDS) {
     const lo = +$(k + '_lo').value || 0, hv = $(k + '_hi').value, hi = hv === '' ? max : +hv;
     if (lo > 0 || hi < max) ranges[k] = [lo, hi];
   }

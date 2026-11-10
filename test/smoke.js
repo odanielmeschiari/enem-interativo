@@ -34,6 +34,10 @@ const send = (d, t) => { const p = wait(t); self.onmessage({ data: d }); return 
   }
   const hitFilter = await q({ ranges: { ACERTOS_CN: [5, 5] } });
   assert(hitFilter.count > 0);
+  const combinedFilter = await q({ ranges: { MEDIA_SIMPLES: [595, 596], ACERTOS_TOTAL: [60, 60] } });
+  assert.strictEqual(combinedFilter.count, 1);
+  const competencyFilter = await q({ ranges: { NU_NOTA_COMP1: [120, 120] } });
+  assert(competencyFilter.count > 0);
   const languageFilter = await q({ ranges: { ACERTOS_LC: [45, 45] } });
   assert.strictEqual(languageFilter.count, 2);
   await q({ ranges: { NU_SEQUENCIAL: [1461268, 1461268] } });
@@ -69,7 +73,7 @@ const send = (d, t) => { const p = wait(t); self.onmessage({ data: d }); return 
   await send({ t: 'release' }, 'released');
   await send({ t: 'init' }, 'cache');
   const migrated = await send({ t: 'usecache' }, 'loaded');
-  assert(migrated.cached && store.get('meta').v === 4);
+  assert(migrated.cached && store.get('meta').v === 5);
   await q({});
   const migratedRanks = await send({ t: 'page', offset: 0, limit: 6, rankKey: 'avg' }, 'page');
   assert.deepStrictEqual(migratedRanks.rows.map((r) => r.ranks), cards.rows.map((r) => r.ranks));
