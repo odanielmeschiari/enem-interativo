@@ -163,19 +163,21 @@ function renderStats(st, hitStats = lastHitStats) {
   lastStats = st; lastHitStats = hitStats;
   const op = $('statop').value, hi = OPS.find((o) => o[0] === op);
   const [avg, wavg] = averages(st.map((s) => s.n ? s.mean * s.n / lastCount : 0)); // overall: every matching candidate counts, absences as 0
-  const hero = `<div class="stat hero"><h4>Média geral dos candidatos filtrados</h4><div class="avgs"><div><small>Média simples</small><b>${num(avg)}</b></div><div><small>Média ponderada</small><b>${num(wavg)}</b></div></div>` +
-    `<p>Média das 5 áreas, falta vale 0 • pesos: ${TILES.map(([i, l]) => `${l} ${W[i]}`).join(' · ')} (ajuste acima)</p></div>`;
+  const summary = `<div class="stats-summary"><div class="summary-copy"><small>RESUMO DO RECORTE</small><h3>Média geral dos candidatos</h3><p>Considera as cinco áreas. Ausências contam como nota zero.</p></div>` +
+    `<div class="summary-values"><div><span>Média simples</span><b>${num(avg)}</b></div><div><span>Média ponderada</span><b>${num(wavg)}</b></div></div></div>`;
   const hitLabels = ['Natureza', 'Humanas', 'Linguagens', 'Matemática', 'Total'];
-  const hits = hitStats.map((h, i) => `<div class="stat hitstat"><h4>Acertos · ${hitLabels[i]}</h4>${h.n ? `<div class="mean">${f1(h.mean)} <small>média</small></div><p>Mediana ${h.median} · mínimo ${h.min} · máximo ${h.max}<br>${fmt(h.n)} candidatos</p>` : '<p class="mut">Sem dados completos</p>'}</div>`).join('');
-  $('statgrid').innerHTML = hero + hits + st.map((s, k) => {
+  const hits = hitStats.map((h, i) => `<article class="stat hitstat"><h4>${hitLabels[i]}</h4><div class="stat-primary">${h.n ? f1(h.mean) : '—'}<small>média de acertos</small></div>` +
+    (h.n ? `<div class="hit-details"><span>Mediana <b>${h.median}</b></span><span>Faixa <b>${h.min}–${h.max}</b></span></div><small class="stat-foot">${fmt(h.n)} candidatos${i === 4 ? ' com as quatro áreas' : ''}</small>` : '<p class="mut">Sem dados completos</p>') + '</article>').join('');
+  const scores = st.map((s, k) => {
     const label = AREAS[k][1];
-    if (!s.n) return `<div class="stat"><h4>${label}</h4><p class="mut">Sem dados</p></div>`;
+    if (!s.n) return `<article class="stat scorestat"><div class="score-head"><h4>${label}</h4></div><p class="mut">Sem dados</p></article>`;
     const top = Math.max(...s.bins);
     const bars = s.bins.map((b, i) => `<i style="height:${Math.max(3, 100 * b / top)}%" title="${i * s.w}–${i * s.w + s.w - 1}: ${fmt(b)}"></i>`).join('');
-    const rest = OPS.filter((o) => o[0] !== op).map((o) => `${o[2]} ${f1(s[o[0]])}`).join(' • ');
-    return `<div class="stat"><h4>${label}</h4><div class="mean">${f1(s[op])} <small>${hi[2]}</small></div><div class="hist">${bars}</div>` +
-      `<p>${rest}<br>${fmt(s.n)} notas</p></div>`;
+    const rest = OPS.filter((o) => o[0] !== op).map((o) => `<span>${o[2]} <b>${f1(s[o[0]])}</b></span>`).join('');
+    return `<article class="stat scorestat"><div class="score-head"><h4>${label}</h4><small>${fmt(s.n)} notas</small></div>` +
+      `<div class="stat-primary">${f1(s[op])}<small>${hi[2]}</small></div><div class="hist">${bars}</div><div class="score-details">${rest}</div></article>`;
   }).join('');
+  $('statgrid').innerHTML = summary + `<div class="hitgrid">${hits}</div><div class="scoregrid">${scores}</div>`;
 }
 
 function buildFilters() {
@@ -267,7 +269,7 @@ buildFilters(); buildMap();
 $('presets').innerHTML = PRESETS.map(([l], i) => `<button type="button" data-i="${i}">${l}</button>`).join('');
 $('presets').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) togglePreset(+b.dataset.i); });
 $('sort').innerHTML = '<option value="">Ordem do arquivo</option>' + [['avg', 'média simples'], ['wavg', 'média ponderada'], ...AREAS.map(([k, l]) => [k, l]), ['ACERTOS_CN', 'acertos em Natureza'], ['ACERTOS_CH', 'acertos em Humanas'], ['ACERTOS_LC', 'acertos em Linguagens'], ['ACERTOS_MT', 'acertos em Matemática'], ['ACERTOS_TOTAL', 'acertos totais']].flatMap(([k, l]) => [`<option value="${k}:desc">Maior ${l}</option>`, `<option value="${k}:asc">Menor ${l}</option>`]).join('');
-$('weights').innerHTML = '<span>Pesos da média ponderada:</span>' + TILES.map(([i, l]) => `<label>${l} <input type="number" min="0" step="any" value="1" data-i="${i}"></label>`).join('') + '<label>Posições por <select id="rankmetric"><option value="avg">Média simples</option><option value="wavg">Média ponderada</option>' + AREAS.map(([k, l]) => `<option value="${k}">${l}</option>`).join('') + '</select></label><span>Falta conta como nota 0 na média.</span>';
+$('weights').innerHTML = '<div class="weight-heading"><b>Pesos da média ponderada</b><small>Faltas contam como nota zero.</small></div><div class="weight-inputs">' + TILES.map(([i, l]) => `<label><span>${l}</span><input type="number" min="0" step="any" value="1" data-i="${i}"></label>`).join('') + '</div><label class="rank-control" for="rankmetric"><span>Posições dos candidatos por</span><select id="rankmetric"><option value="avg">Média simples</option><option value="wavg">Média ponderada</option>' + AREAS.map(([k, l]) => `<option value="${k}">${l}</option>`).join('') + '</select></label>';
 $('weights').addEventListener('input', () => {
   renderCards(); if (lastStats.length) renderStats(lastStats);
   if ($('sort').value.startsWith('wavg') || $('rankmetric').value === 'wavg') { pageOff = 0; requestPage(); } // order and ranks depend on the weights
