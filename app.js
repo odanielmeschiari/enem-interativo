@@ -183,6 +183,30 @@ function renderStats(st, hitStats = lastHitStats, simpleStats = lastSimpleStats)
   $('statgrid').innerHTML = summary + `<div class="hitgrid">${hits}</div><div class="scoregrid">${scores}</div>`;
 }
 
+const f1z = (x) => x.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+let hitScore = null, hitRows = []; // hitScore[area][hits] = [n, min, mean, max] | null; hitRows = [hits, n, min, mean, max] of the selected area
+function hitText(r) { return `${r[0]} acerto${r[0] === 1 ? '' : 's'} · média ${f1z(r[3])} · menor ${f1z(r[2])} · maior ${f1z(r[4])} · ${fmt(r[1])} candidato${r[1] === 1 ? '' : 's'}`; }
+function renderHitScore(h = hitScore) {
+  hitScore = h;
+  if (!h) return;
+  hitRows = h[+$('hitarea').value].map((r, a) => r && [a, ...r]).filter(Boolean);
+  if (!hitRows.length) { $('hitchart').innerHTML = $('hittable').innerHTML = ''; $('hitread').textContent = 'Nenhum candidato com acertos e nota nesta área.'; return; }
+  const W = 900, H = 300, L = 48, R = 10, T = 10, B = 28, y0 = Math.floor(Math.min(...hitRows.map((r) => r[2])) / 100) * 100, y1 = Math.ceil(Math.max(...hitRows.map((r) => r[4])) / 100) * 100;
+  const x = (a) => L + a * (W - L - R) / 45, y = (v) => T + (1 - (v - y0) / (y1 - y0 || 1)) * (H - T - B), step = (W - L - R) / 45;
+  let g = '';
+  for (let v = y0; v <= y1; v += 100) g += `<line class="gl" x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}"/><text class="ax" x="${L - 6}" y="${y(v)}" text-anchor="end">${v}</text>`;
+  for (let a = 0; a <= 45; a += 5) g += `<text class="ax" x="${x(a)}" y="${H - 8}" text-anchor="middle">${a}</text>`;
+  const band = [...hitRows.map((r) => `${x(r[0])},${y(r[4])}`), ...hitRows.map((r) => `${x(r[0])},${y(r[2])}`).reverse()].join(' ');
+  const dots = hitRows.map((r) => `<circle class="${r[1] < 10 ? 'thin' : ''}" cx="${x(r[0])}" cy="${y(r[3])}" r="4"/>`).join('');
+  const hover = hitRows.map((r, j) => `<rect data-j="${j}" x="${x(r[0]) - step / 2}" y="${T}" width="${step}" height="${H - T - B}"/>`).join('');
+  $('hitchart').innerHTML = `<svg viewBox="0 0 ${W} ${H}">${g}<polygon class="band" points="${band}"/><polyline class="mline" points="${hitRows.map((r) => `${x(r[0])},${y(r[3])}`).join(' ')}"/>${dots}<line id="hitcur" y1="${T}" y2="${H - B}" hidden/>${hover}</svg>`;
+  const best = hitRows[hitRows.length - 1];
+  $('hitread').textContent = hitText(best);
+  const half = Math.ceil(hitRows.length / 2), tbl = (rs) => `<table><thead><tr><th>Freq.</th><th>Acertos</th><th>Mínima</th><th>Média</th><th>Máxima</th></tr></thead><tbody>` +
+    rs.map((r) => `<tr${r[0] % 5 === 0 ? ' class="hl"' : ''}><td>${fmt(r[1])}</td><th>${r[0]}</th><td>${f1z(r[2])}</td><td>${f1z(r[3])}</td><td>${f1z(r[4])}</td></tr>`).join('') + '</tbody></table>';
+  $('hittable').innerHTML = tbl(hitRows.slice(0, half)) + (hitRows.length > 1 ? tbl(hitRows.slice(half)) : '');
+}
+
 function buildFilters() {
   const fields = (items) => items.map(([k, label, max]) =>
     `<div><span>${label}</span><input type="number" step="any" id="${k}_lo" min="0" max="${max}" placeholder="0"><input type="number" step="any" id="${k}_hi" min="0" max="${max}" placeholder="${max}"></div>`).join('');
@@ -248,7 +272,7 @@ function initWorker() {
       $('count').textContent = fmt(m.count);
       $('pct').textContent = `${(100 * m.count / m.total).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}% do total`;
       $('ms').textContent = `${fmt(m.total)} no total • filtrado em ${m.ms} ms`;
-      lastCount = m.count; renderStats(m.stats, m.hitStats, m.simpleStats); renderMap(m); muniPage = 0; renderMuniRank();
+      lastCount = m.count; renderStats(m.stats, m.hitStats, m.simpleStats); renderMap(m); renderHitScore(m.hitScore); muniPage = 0; renderMuniRank();
       pageOff = 0; requestPage();
     } else if (m.t === 'page') {
       if (m.id === seq) renderPage(m);
@@ -280,6 +304,9 @@ $('weights').addEventListener('input', () => {
 });
 $('statop').innerHTML = OPS.map(([v, l]) => `<option value="${v}">Destaque: ${l}</option>`).join('');
 $('statop').onchange = () => renderStats(lastStats);
+$('hitarea').innerHTML = AREAS.slice(0, 4).map(([, l], k) => `<option value="${k}">${l}</option>`).join(''); $('hitarea').value = 3;
+$('hitarea').onchange = () => renderHitScore();
+$('hitchart').addEventListener('mouseover', (e) => { const r = e.target.dataset.j; if (r === undefined) return; $('hitread').textContent = hitText(hitRows[+r]); const c = $('hitcur'), a = e.target.getAttribute('x'), w = e.target.getAttribute('width'); c.setAttribute('x1', +a + w / 2); c.setAttribute('x2', +a + w / 2); c.removeAttribute('hidden'); });
 $('sort').onchange = () => { pageOff = 0; requestPage(); };
 $('rankmetric').onchange = () => { pageOff = 0; requestPage(); };
 $('prev').onclick = () => { pageOff = Math.max(0, pageOff - PAGE); requestPage(); };

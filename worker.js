@@ -260,6 +260,7 @@ function filter(q) {
   const mcn = new Uint32Array(65536), mcs = new Float64Array(65536), mcp = new Uint32Array(65536); // per-municipality count / score sum / scored count: ignore the municipality filter itself, respect the UF one
   const hitCols = HIT_KEYS.map((k) => cols[k]), hitN = new Uint32Array(5), hitSum = new Float64Array(5), hitMin = new Uint8Array(5).fill(255), hitMax = new Uint8Array(5);
   const hitHist = new Uint32Array(4 * 46), totalHitHist = new Uint32Array(181);
+  const hs = new Uint32Array(4 * 46), hsum = new Float64Array(4 * 46), hmin = new Float64Array(4 * 46).fill(Infinity), hmax = new Float64Array(4 * 46).fill(-Infinity); // score per (area, correct answers)
   const nr = rc.length, nc = cc.length;
   if (!matchIdx || matchIdx.length < n) matchIdx = new Int32Array(n);
   let count = 0;
@@ -273,6 +274,7 @@ function filter(q) {
     matchIdx[count++] = i;
     let totalHits = 0, allHits = true;
     for (let k = 0; k < 4; k++) { const h = hitCols[k][i]; if (h === 255) allHits = false; else { hitN[k]++; hitSum[k] += h; hitHist[k * 46 + h]++; if (h < hitMin[k]) hitMin[k] = h; if (h > hitMax[k]) hitMax[k] = h; totalHits += h; } }
+    for (let k = 0; k < 4; k++) { const h = hitCols[k][i], x = sa[k][i]; if (h !== 255 && x === x) { const j = k * 46 + h; hs[j]++; hsum[j] += x; if (x < hmin[j]) hmin[j] = x; if (x > hmax[j]) hmax[j] = x; } }
     if (allHits) { hitN[4]++; hitSum[4] += totalHits; totalHitHist[totalHits]++; if (totalHits < hitMin[4]) hitMin[4] = totalHits; if (totalHits > hitMax[4]) hitMax[4] = totalHits; }
     let candidateSum = 0;
     for (let k = 0; k < ns; k++) {
@@ -288,7 +290,8 @@ function filter(q) {
   for (let g = 0; g < dicts[1].names.length; g++) if (mcn[g]) { pm.push(g); pmn.push(mcn[g]); pmm.push(mcp[g] ? mcs[g] / mcp[g] : null); }
   const hitStats = Array.from({ length: 5 }, (_, k) => { const c = hitN[k], hist = k === 4 ? totalHitHist : hitHist, off = k === 4 ? 0 : k * 46, end = k === 4 ? 181 : 46; let med = null, cum = 0; if (c) for (let v = 0; v < end; v++) { cum += hist[off + v]; if (cum >= Math.ceil(c / 2)) { med = v; break; } } return { n: c, mean: c ? hitSum[k] / c : null, median: med, min: c ? hitMin[k] : null, max: c ? hitMax[k] : null }; });
   const simpleStats = count ? summarize(0, [simpleSum], [simpleSq], [count], [simpleMin], [simpleMax], simpleHist) : { n: 0 };
-  postMessage({ t: 'result', id: q.id, count, total: n, hitStats, simpleStats, ms: +(performance.now() - t0).toFixed(1), ufs: ufNames,
+  const hitScore = Array.from({ length: 4 }, (_, k) => Array.from({ length: 46 }, (_, h) => { const j = k * 46 + h; return hs[j] ? [hs[j], hmin[j], hsum[j] / hs[j], hmax[j]] : null; })); // [area][hits] -> [n, min, mean, max]
+  postMessage({ t: 'result', id: q.id, count, total: n, hitStats, simpleStats, hitScore, ms: +(performance.now() - t0).toFixed(1), ufs: ufNames,
     perMuni: pm, perMuniN: pmn, perMuniMean: pmm, perUf: Array.from(pc.subarray(0, nu)), perUfMean: Array.from(ps.subarray(0, nu), (s, u) => (pn[u] ? s / pn[u] : null)),
     stats: SK.map((_, k) => summarize(k, sum, sq, cn, mn, mx, hist)) });
 }

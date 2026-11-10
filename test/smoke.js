@@ -25,6 +25,9 @@ const send = (d, t) => { const p = wait(t); self.onmessage({ data: d }); return 
   const scoreOf = (r) => r.n.reduce((sum, x) => sum + (x === null ? 0 : x), 0) / 5;
   assert(Math.abs(allStats.simpleStats.mean - cards.rows.reduce((sum, r) => sum + scoreOf(r), 0) / cards.rows.length) < 0.01);
   assert.strictEqual(allStats.simpleStats.n, allStats.count);
+  const first = cards.rows[0], cell = (k) => allStats.hitScore[k][first.hits[k]]; // [n, min, mean, max]
+  for (let k = 0; k < 4; k++) if (first.n[k] !== null) assert(cell(k)[0] >= 1 && cell(k)[1] - 0.1 <= first.n[k] && first.n[k] <= cell(k)[3] + 0.1);
+  for (let k = 0; k < 4; k++) assert(allStats.hitScore[k].reduce((s, c) => s + (c ? c[0] : 0), 0) <= allStats.stats[k].n);
   for (const r of cards.rows) {
     const score = scoreOf(r);
     assert.strictEqual(r.ranks.all, 1 + cards.rows.filter((x) => scoreOf(x) > score).length);
