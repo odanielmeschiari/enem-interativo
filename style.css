@@ -74,10 +74,10 @@ h2 select { float:right; font-size:13px; }
 .weights label { margin:0; } .weights input { width:64px; margin-left:4px; }
 .avgs { display:flex; justify-content:center; gap:36px; text-align:center; margin:12px 0 14px; }
 .avgs small { display:block; color:var(--mut); font-size:13px; } .avgs b { display:block; font-size:34px; line-height:1.1; color:var(--acc); }
-.tiles { display:flex; justify-content:center; gap:8px; }
-.tile { display:grid; justify-items:center; gap:4px; width:58px; } .tile small { color:var(--mut); font-size:11px; }
-.dot { width:54px; height:54px; display:grid; place-items:center; font-weight:700; font-size:16px; background:hsl(var(--h) 55% 20%); border:3px solid hsl(var(--h) 70% 45%); }
-.dot.off { --h:220; background:#424242; border-color:var(--line); color:var(--mut); }
+.tiles { display:flex; } /* one continuous strip: five segments side by side */
+.tile { flex:1; min-width:0; display:grid; gap:4px; text-align:center; } .tile small { color:var(--mut); font-size:11px; }
+.dot { height:54px; display:grid; place-items:center; font-weight:700; font-size:18px; background:hsl(var(--h) 60% 32%); }
+.dot.off { background:#424242; color:var(--mut); }
 h1, h2, h3, h4, .big, .mean, .avgs b { font-family:var(--head); }
 button, input, select, .stat p, .cand, .rank, .dot, .weights, #legend, #ms, .pager { font-family:var(--ui); }
 

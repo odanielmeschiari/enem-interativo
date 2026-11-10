@@ -81,13 +81,23 @@ const PRESETS = [
   ['Eliminados', { groups: { pres: [2] } }],
 ];
 let pageOff = 0, pageTotal = 0;
-const setPreset = (i) => document.querySelectorAll('#presets button').forEach((b) => b.setAttribute('aria-pressed', +b.dataset.i === i));
-function applyPreset(i) {
-  const p = PRESETS[i][1];
-  $('f').reset(); muniSel.clear(); renderMunis(); ufSel = new Set(p.ufs || []);
-  for (const [k, [lo, hi]] of Object.entries(p.ranges || {})) { $(k + '_lo').value = lo; $(k + '_hi').value = hi; }
-  for (const [id, vals] of Object.entries(p.groups || {})) for (const x of document.querySelectorAll(`#g_${id} input`)) x.checked = vals.includes(+x.value);
-  setPreset(i); schedule();
+const active = new Set(); // indexes of the selected presets
+const markPresets = () => document.querySelectorAll('#presets button').forEach((b) => b.setAttribute('aria-pressed', active.has(+b.dataset.i)));
+function togglePreset(i) { // the form becomes the merge of all selected presets: score ranges intersect, chips of one group add up (OR, like the chips themselves)
+  active.has(i) ? active.delete(i) : active.add(i);
+  const keep = $('nofalta').checked, R = {}, G = {};
+  $('f').reset(); $('nofalta').checked = keep;
+  for (const j of active) {
+    const p = PRESETS[j][1];
+    for (const [k, [lo, hi]] of Object.entries(p.ranges || {})) {
+      const r = R[k], his = [r && r[1], hi].filter((x) => x !== '' && x !== undefined);
+      R[k] = [Math.max(r ? r[0] : 0, lo), his.length ? Math.min(...his) : ''];
+    }
+    for (const [id, vals] of Object.entries(p.groups || {})) G[id] = [...new Set([...(G[id] || []), ...vals])];
+  }
+  for (const [k, [lo, hi]] of Object.entries(R)) { $(k + '_lo').value = lo; $(k + '_hi').value = hi; }
+  for (const [id, vals] of Object.entries(G)) for (const x of document.querySelectorAll(`#g_${id} input`)) x.checked = vals.includes(+x.value);
+  markPresets(); schedule();
 }
 function requestPage() {
   const [sort, dir] = $('sort').value.split(':');
@@ -137,7 +147,7 @@ function renderStats(st) {
   const op = $('statop').value, hi = OPS.find((o) => o[0] === op);
   const [avg, wavg] = averages(st.map((s) => s.n ? s.mean : null)); // overall: mean of the five area means
   const hero = `<div class="stat hero"><h4>Média geral dos candidatos filtrados</h4><div class="avgs"><div><small>Média simples</small><b>${num(avg)}</b></div><div><small>Média ponderada</small><b>${num(wavg)}</b></div></div>` +
-    `<p>Média das 5 áreas • pesos: ${TILES.map(([i, l]) => `${l} ${W[i]}`).join(' · ')} (ajuste em Candidatos)</p></div>`;
+    `<p>Média das 5 áreas • pesos: ${TILES.map(([i, l]) => `${l} ${W[i]}`).join(' · ')} (ajuste acima)</p></div>`;
   $('statgrid').innerHTML = hero + st.map((s, k) => {
     const label = AREAS[k][1];
     if (!s.n) return `<div class="stat"><h4>${label}</h4><p class="mut">Sem dados</p></div>`;
@@ -165,7 +175,7 @@ function suggest() {
   for (let i = 0; i < munis.length && out.length < 8; i++) if (munis[i].key.includes(q)) out.push(i);
   $('sug').innerHTML = out.map((i) => `<button type="button" data-i="${i}">${munis[i].label}</button>`).join('');
 }
-function addMuni(i) { muniSel.set(i, munis[i].label); $('mq').value = ''; $('sug').innerHTML = ''; renderMunis(); edit(); }
+function addMuni(i) { muniSel.set(i, munis[i].label); $('mq').value = ''; $('sug').innerHTML = ''; renderMunis(); schedule(); }
 
 function query() {
   const ranges = {}, cats = {};
@@ -183,7 +193,7 @@ function query() {
 }
 function run() { worker.postMessage({ t: 'filter', id: ++seq, ...query() }); }
 function schedule() { clearTimeout(timer); timer = setTimeout(run, 120); }
-function edit() { setPreset(-1); schedule(); } // any manual filter change ends the preset highlight
+function edit() { active.clear(); markPresets(); schedule(); } // a manual change to the form ends the preset highlight
 
 let cacheInfo = null, base = '';
 const setStatus = (s) => { base = s; $('status').textContent = s; };
@@ -231,7 +241,7 @@ function start(file) {
 
 buildFilters(); buildMap();
 $('presets').innerHTML = PRESETS.map(([l], i) => `<button type="button" data-i="${i}">${l}</button>`).join('');
-$('presets').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) applyPreset(+b.dataset.i); });
+$('presets').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) togglePreset(+b.dataset.i); });
 $('sort').innerHTML = '<option value="">Ordem do arquivo</option>' + AREAS.flatMap(([k, l]) => [`<option value="${k}:desc">Maior ${l}</option>`, `<option value="${k}:asc">Menor ${l}</option>`]).join('');
 $('weights').innerHTML = '<span>Pesos da média ponderada:</span>' + TILES.map(([i, l]) => `<label>${l} <input type="number" min="0" step="any" value="1" data-i="${i}"></label>`).join('') + '<span>Sem alguma nota, a média fica “–”.</span>';
 $('weights').addEventListener('input', () => { renderCards(); if (lastStats.length) renderStats(lastStats); });
@@ -240,16 +250,16 @@ $('statop').onchange = () => renderStats(lastStats);
 $('sort').onchange = () => { pageOff = 0; requestPage(); };
 $('prev').onclick = () => { pageOff = Math.max(0, pageOff - PAGE); requestPage(); };
 $('next').onclick = () => { pageOff += PAGE; requestPage(); };
-for (const id of ['map', 'rank']) $(id).addEventListener('click', (e) => { const b = e.target.closest('[data-uf]'); if (!b) return; const u = b.dataset.uf; ufSel.has(u) ? ufSel.delete(u) : ufSel.add(u); edit(); });
+for (const id of ['map', 'rank']) $(id).addEventListener('click', (e) => { const b = e.target.closest('[data-uf]'); if (!b) return; const u = b.dataset.uf; ufSel.has(u) ? ufSel.delete(u) : ufSel.add(u); schedule(); });
 $('metric').onchange = schedule;
 $('file').onchange = (e) => e.target.files[0] && start(e.target.files[0]);
 $('release').onclick = () => worker.postMessage({ t: 'release' });
 $('usecache').onclick = () => { busy('Carregando dados salvos…'); worker.postMessage({ t: 'usecache' }); };
 $('delcache').onclick = () => worker.postMessage({ t: 'clearcache' });
 initWorker();
-$('f').addEventListener('input', (e) => { if (e.target.id !== 'mq') edit(); });
+$('f').addEventListener('input', (e) => { if (e.target.id === 'nofalta') schedule(); else if (e.target.id !== 'mq') edit(); });
 $('mq').addEventListener('input', suggest);
 $('mq').addEventListener('keydown', (e) => { if (e.key === 'Enter') { const b = $('sug').querySelector('button'); if (b) addMuni(+b.dataset.i); } });
 $('sug').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) addMuni(+b.dataset.i); });
-$('mchips').addEventListener('click', (e) => { const c = e.target.closest('.chip'); if (c) { muniSel.delete(+c.dataset.i); renderMunis(); edit(); } });
+$('mchips').addEventListener('click', (e) => { const c = e.target.closest('.chip'); if (c) { muniSel.delete(+c.dataset.i); renderMunis(); schedule(); } });
 $('clear').onclick = () => { $('f').reset(); muniSel.clear(); ufSel.clear(); renderMunis(); $('sug').innerHTML = ''; edit(); };
