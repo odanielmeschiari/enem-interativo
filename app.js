@@ -106,11 +106,10 @@ function requestPage() {
 const TILES = [[3, 'Matemática'], [1, 'Humanas'], [2, 'Linguagens'], [0, 'Natureza'], [4, 'Redação']]; // [index in r.n, label]; same order as the weight inputs
 const hue = (x) => Math.round(120 * Math.min(1, Math.max(0, (x - 300) / 500))); // 300 or less = red, 800 or more = green
 let pageRows = [], W = [1, 1, 1, 1, 1];
-function averages(n) { // both are null unless every needed score exists; weight 0 leaves a score out
-  const simple = n.every((x) => x !== null) ? n.reduce((a, b) => a + b, 0) / n.length : null;
-  let s = 0, t = 0;
-  for (let i = 0; i < n.length; i++) if (W[i] > 0) { if (n[i] === null) return [simple, null]; s += W[i] * n[i]; t += W[i]; }
-  return [simple, t > 0 ? s / t : null];
+function averages(n) { // missing scores are skipped; weight 0 leaves a score out of the weighted one; null only if nothing is left
+  let s = 0, c = 0, ws = 0, wt = 0;
+  for (let i = 0; i < n.length; i++) if (n[i] !== null) { s += n[i]; c++; if (W[i] > 0) { ws += W[i] * n[i]; wt += W[i]; } }
+  return [c ? s / c : null, wt ? ws / wt : null];
 }
 function card(r) {
   const dep = LBL('dep'), loc = LBL('loc'), lin = LBL('lin'), red = LBL('red'), tags = [];
@@ -243,7 +242,7 @@ buildFilters(); buildMap();
 $('presets').innerHTML = PRESETS.map(([l], i) => `<button type="button" data-i="${i}">${l}</button>`).join('');
 $('presets').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) togglePreset(+b.dataset.i); });
 $('sort').innerHTML = '<option value="">Ordem do arquivo</option>' + [['avg', 'média simples'], ['wavg', 'média ponderada']].concat(AREAS.map(([k, l]) => [k, l])).flatMap(([k, l]) => [`<option value="${k}:desc">Maior ${l}</option>`, `<option value="${k}:asc">Menor ${l}</option>`]).join('');
-$('weights').innerHTML = '<span>Pesos da média ponderada:</span>' + TILES.map(([i, l]) => `<label>${l} <input type="number" min="0" step="any" value="1" data-i="${i}"></label>`).join('') + '<span>Sem alguma nota, a média fica “–”.</span>';
+$('weights').innerHTML = '<span>Pesos da média ponderada:</span>' + TILES.map(([i, l]) => `<label>${l} <input type="number" min="0" step="any" value="1" data-i="${i}"></label>`).join('') + '<span>Notas ausentes ficam de fora da média.</span>';
 $('weights').addEventListener('input', () => {
   renderCards(); if (lastStats.length) renderStats(lastStats);
   if ($('sort').value.startsWith('wavg')) { pageOff = 0; requestPage(); } // order depends on the weights
