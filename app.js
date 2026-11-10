@@ -158,9 +158,9 @@ function renderPage(m) {
   $('prev').disabled = pageOff === 0; $('next').disabled = pageOff + PAGE >= avail;
 }
 const OPS = [['mean', 'Média', 'média'], ['med', 'Mediana', 'mediana'], ['max', 'Maior nota', 'máx'], ['min', 'Menor nota', 'mín'], ['p25', '1º quartil', '1º quartil'], ['p75', '3º quartil', '3º quartil'], ['sd', 'Desvio padrão', 'desvio']];
-let lastStats = [], lastCount = 0;
-function renderStats(st, hitStats = lastHitStats) {
-  lastStats = st; lastHitStats = hitStats;
+let lastStats = [], lastCount = 0, lastSimpleStats = null;
+function renderStats(st, hitStats = lastHitStats, simpleStats = lastSimpleStats) {
+  lastStats = st; lastHitStats = hitStats; lastSimpleStats = simpleStats;
   const op = $('statop').value, hi = OPS.find((o) => o[0] === op);
   const [avg, wavg] = averages(st.map((s) => s.n ? s.mean * s.n / lastCount : 0)); // overall: every matching candidate counts, absences as 0
   const summary = `<div class="stats-summary"><div class="summary-copy"><small>RESUMO DO RECORTE</small><h3>Média geral dos candidatos</h3><p>Considera as cinco áreas. Ausências contam como nota zero.</p></div>` +
@@ -168,13 +168,13 @@ function renderStats(st, hitStats = lastHitStats) {
   const hitLabels = ['Natureza', 'Humanas', 'Linguagens', 'Matemática', 'Total'];
   const hits = hitStats.map((h, i) => `<article class="stat hitstat"><h4>${hitLabels[i]}</h4><div class="stat-primary">${h.n ? f1(h.mean) : '—'}<small>média de acertos</small></div>` +
     (h.n ? `<div class="hit-details"><span>Mediana <b>${h.median}</b></span><span>Faixa <b>${h.min}–${h.max}</b></span></div><small class="stat-foot">${fmt(h.n)} candidatos${i === 4 ? ' com as quatro áreas' : ''}</small>` : '<p class="mut">Sem dados completos</p>') + '</article>').join('');
-  const scores = st.map((s, k) => {
-    const label = AREAS[k][1];
-    if (!s.n) return `<article class="stat scorestat"><div class="score-head"><h4>${label}</h4></div><p class="mut">Sem dados</p></article>`;
+  const scores = [...st, simpleStats].map((s, k) => {
+    const isSimple = k === st.length, label = isSimple ? 'Média simples' : AREAS[k][1];
+    if (!s || !s.n) return `<article class="stat scorestat${isSimple ? ' simple-average' : ''}"><div class="score-head"><h4>${label}</h4></div><p class="mut">Sem dados</p></article>`;
     const top = Math.max(...s.bins);
     const bars = s.bins.map((b, i) => `<i style="height:${Math.max(3, 100 * b / top)}%" title="${i * s.w}–${i * s.w + s.w - 1}: ${fmt(b)}"></i>`).join('');
     const rest = OPS.filter((o) => o[0] !== op).map((o) => `<span>${o[2]} <b>${f1(s[o[0]])}</b></span>`).join('');
-    return `<article class="stat scorestat"><div class="score-head"><h4>${label}</h4><small>${fmt(s.n)} notas</small></div>` +
+    return `<article class="stat scorestat${isSimple ? ' simple-average' : ''}"><div class="score-head"><h4>${label}</h4><small>${fmt(s.n)} candidatos</small></div>` +
       `<div class="stat-primary">${f1(s[op])}<small>${hi[2]}</small></div><div class="hist">${bars}</div><div class="score-details">${rest}</div></article>`;
   }).join('');
   $('statgrid').innerHTML = summary + `<div class="hitgrid">${hits}</div><div class="scoregrid">${scores}</div>`;
@@ -244,7 +244,7 @@ function initWorker() {
       $('count').textContent = fmt(m.count);
       $('pct').textContent = `${(100 * m.count / m.total).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}% do total`;
       $('ms').textContent = `${fmt(m.total)} no total • filtrado em ${m.ms} ms`;
-      lastCount = m.count; renderStats(m.stats, m.hitStats); renderMap(m); muniPage = 0; renderMuniRank();
+      lastCount = m.count; renderStats(m.stats, m.hitStats, m.simpleStats); renderMap(m); muniPage = 0; renderMuniRank();
       pageOff = 0; requestPage();
     } else if (m.t === 'page') {
       if (m.id === seq) renderPage(m);

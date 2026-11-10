@@ -19,10 +19,12 @@ const send = (d, t) => { const p = wait(t); self.onmessage({ data: d }); return 
   const saved = wait('saved');
   console.log(await send({ t: 'load', file }, 'loaded')); await saved;
   const q = async (x) => { const r = await send({ t: 'filter', ...x }, 'result'); console.log(JSON.stringify(x), '->', r.count, '/', r.total, r.ms + 'ms', r.perUf.join(',')); return r; };
-  await q({});
+  const allStats = await q({});
   const cards = await send({ t: 'page', offset: 0, limit: 6, rankKey: 'avg' }, 'page');
   assert.deepStrictEqual(cards.rows[0].hits, [5, 5, 45, 5]);
   const scoreOf = (r) => r.n.reduce((sum, x) => sum + (x === null ? 0 : x), 0) / 5;
+  assert(Math.abs(allStats.simpleStats.mean - cards.rows.reduce((sum, r) => sum + scoreOf(r), 0) / cards.rows.length) < 0.01);
+  assert.strictEqual(allStats.simpleStats.n, allStats.count);
   for (const r of cards.rows) {
     const score = scoreOf(r);
     assert.strictEqual(r.ranks.all, 1 + cards.rows.filter((x) => scoreOf(x) > score).length);

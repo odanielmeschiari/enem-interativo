@@ -132,3 +132,6 @@ body::before { content:""; position:fixed; inset:0; z-index:-1; background:linea
 @media (max-width:1000px) { .hitgrid { grid-template-columns:repeat(3,minmax(0,1fr)); } }
 @media (max-width:700px) { .stats-summary { align-items:stretch; flex-direction:column; gap:12px; } .summary-values div { min-width:0; flex:1; } .hitgrid, .scoregrid { grid-template-columns:repeat(2,minmax(0,1fr)); } .weight-inputs { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 @media (max-width:460px) { .hitgrid, .scoregrid { grid-template-columns:1fr; } .summary-values { flex-direction:column; } .rank-control { align-items:flex-start; flex-direction:column; } }
+
+.simple-average .hist i { background:#53b7f3; }
+.simple-average .stat-primary { color:#78c9ff; }
