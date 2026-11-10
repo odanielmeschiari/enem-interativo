@@ -136,11 +136,7 @@ body::before { content:""; position:fixed; inset:0; z-index:-1; background:linea
 .simple-average .hist i { background:#53b7f3; }
 .simple-average .stat-primary { color:#78c9ff; }
 
-/* Hits x TRI score: mean line over a min-max band, plus the table in the layout of the study sheets */
-.hitread { margin:10px 0 4px; min-height:27px; color:var(--acc); font:600 18px var(--ui); }
-#hitchart svg { display:block; width:100%; height:auto; } #hitchart text.ax { fill:var(--mut); font-size:12px; dominant-baseline:central; } #hitchart .gl { stroke:#424242; stroke-width:1; }
-#hitchart .band { fill:#43a04740; } #hitchart .mline { fill:none; stroke:var(--acc); stroke-width:2.5; stroke-linejoin:round; }
-#hitchart circle { fill:var(--acc); } #hitchart circle.thin { fill:var(--bg); stroke:var(--acc); stroke-width:1.5; } #hitchart rect { fill:transparent; } #hitcur { stroke:#fff; stroke-width:1; stroke-dasharray:3 3; }
+/* Hits x TRI score table, in the layout of the study sheets */
 .hit-tables { display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:12px; margin-top:14px; font-family:var(--ui); }
 .hit-tables table { border-collapse:collapse; width:100%; font-size:14px; text-align:center; }
 .hit-tables th, .hit-tables td { padding:3px 6px; border:1px solid var(--line); } .hit-tables thead th { background:var(--acc); color:#121212; } .hit-tables tbody th { color:var(--acc); }
