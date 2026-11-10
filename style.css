@@ -86,3 +86,6 @@ button, input, select, .stat p, .cand, .rank, .dot, .weights, #legend, #ms, .pag
 
 /* Page background: the exam-guide picture under a heavy dark layer so the panels stay readable */
 body::before { content:""; position:fixed; inset:0; z-index:-1; background:linear-gradient(rgba(18,18,18,.93), rgba(18,18,18,.93)), url(assets/background.webp) center / cover; }
+
+.hits, .ranks { display:flex; flex-wrap:wrap; gap:6px 12px; margin-top:10px; color:var(--mut); font-size:13px; }
+.hits small { flex-basis:100%; } .hits b, .ranks b { color:var(--fg); } .ranks { border-top:1px solid var(--line); padding-top:8px; justify-content:space-between; }

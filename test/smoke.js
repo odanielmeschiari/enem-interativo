@@ -1,5 +1,5 @@
 // Run: node test/smoke.js [file.csv]  — loads the CSV with worker.js, checks the cache, runs a few filters.
-const fs = require('fs'), path = require('path');
+const fs = require('fs'), path = require('path'), assert = require('assert');
 const store = new Map(); // minimal in-memory IndexedDB fake (get/put/clear on one store)
 global.indexedDB = { open() {
   const r = {};
@@ -19,6 +19,12 @@ const send = (d, t) => { const p = wait(t); self.onmessage({ data: d }); return 
   const saved = wait('saved');
   console.log(await send({ t: 'load', file }, 'loaded')); await saved;
   const q = async (x) => { const r = await send({ t: 'filter', ...x }, 'result'); console.log(JSON.stringify(x), '->', r.count, '/', r.total, r.ms + 'ms', r.perUf.join(',')); return r; };
+  await q({});
+  const cards = await send({ t: 'page', offset: 0, limit: 1, rankKey: 'NU_NOTA_CN' }, 'page');
+  assert.deepStrictEqual(cards.rows[0].hits, [5, 5, 5, 5]);
+  assert(Number.isInteger(cards.rows[0].ranks.all) && Number.isInteger(cards.rows[0].ranks.school));
+  const hitFilter = await q({ ranges: { ACERTOS_CN: [5, 5] } });
+  assert(hitFilter.count > 0);
   await q({});
   const r0 = await send({ t: 'filter', metric: 3 }, 'result');
   console.log('per municipality (idx:n:meanMT)', r0.perMuni.map((g, k) => g + ':' + r0.perMuniN[k] + ':' + (r0.perMuniMean[k] && +r0.perMuniMean[k].toFixed(1))).join(' '));

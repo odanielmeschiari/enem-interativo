@@ -116,7 +116,7 @@ function togglePreset(i) { // the form becomes the merge of all selected presets
 }
 function requestPage() {
   const [sort, dir] = $('sort').value.split(':');
-  worker.postMessage({ t: 'page', id: seq, sort: sort || null, dir, w: W, offset: pageOff, limit: PAGE });
+  worker.postMessage({ t: 'page', id: seq, sort: sort || null, dir, w: W, offset: pageOff, limit: PAGE, rankKey: $('rankmetric').value });
 }
 const TILES = [[3, 'Matemática'], [1, 'Humanas'], [2, 'Linguagens'], [0, 'Natureza'], [4, 'Redação']]; // [index in r.n, label]; same order as the weight inputs
 const hue = (x) => Math.round(120 * Math.min(1, Math.max(0, (x - 300) / 500))); // 300 or less = red, 800 or more = green
@@ -138,10 +138,12 @@ function card(r) {
   if (r.red !== 255 && r.red !== 1) warn.push(`Redação: ${(red[r.red] || 'problema').toLowerCase()}`);
   const [avg, wavg] = averages(r.n);
   const tile = ([i, l]) => `<div class="tile">${r.n[i] === null ? '<div class="dot off">–</div>' : `<div class="dot" style="--h:${hue(r.n[i])}">${f1(r.n[i])}</div>`}<small>${l}</small></div>`;
+  const rank = r.ranks ? `<div class="ranks"><span>ENEM <b>${fmt(r.ranks.all)}º</b></span><span>Estado <b>${fmt(r.ranks.state)}º</b></span><span>Cidade <b>${fmt(r.ranks.city)}º</b></span><span>Escola <b>${r.ranks.school ? fmt(r.ranks.school) + 'º' : '—'}</b></span></div>` : '';
+  const hits = r.hits.map((v, i) => `<span>${['Natureza', 'Humanas', 'Linguagens', 'Matemática'][i]} <b>${v === null ? '—' : v + '/45'}</b></span>`).join('');
   return `<div class="cand"><div class="head"><b>Candidato ${r.id}</b><span>${r.muni || '—'} · ${r.uf || '—'}</span></div>` +
     `<div class="tags">${tags.filter(Boolean).map((t) => `<i>${t}</i>`).join('')}${warn.map((t) => `<i class="warn">${t}</i>`).join('')}</div>` +
     `<div class="avgs"><div><small>Média simples</small><b>${num(avg)}</b></div><div><small>Média ponderada</small><b>${num(wavg)}</b></div></div>` +
-    `<div class="tiles">${TILES.map(tile).join('')}</div></div>`;
+    `<div class="tiles">${TILES.map(tile).join('')}</div><div class="hits"><small>Acertos por área (sobre 45 questões)</small>${hits}</div>${rank}</div>`;
 }
 function renderCards() {
   for (const x of $('weights').querySelectorAll('input')) W[+x.dataset.i] = Math.max(0, +x.value || 0);
@@ -175,7 +177,8 @@ function renderStats(st) {
 
 function buildFilters() {
   $('scores').innerHTML = SCORES.map(([k, label, max]) =>
-    `<div><span>${label}</span><input type="number" id="${k}_lo" min="0" max="${max}" placeholder="0"><input type="number" id="${k}_hi" min="0" max="${max}" placeholder="${max}"></div>`).join('');
+    `<div><span>${label}</span><input type="number" id="${k}_lo" min="0" max="${max}" placeholder="0"><input type="number" id="${k}_hi" min="0" max="${max}" placeholder="${max}"></div>`).join('') +
+    ['CN', 'CH', 'LC', 'MT'].map((a, i) => `<div><span>Acertos: ${['Natureza', 'Humanas', 'Linguagens', 'Matemática'][i]}</span><input type="number" id="ACERTOS_${a}_lo" min="0" max="45" placeholder="0"><input type="number" id="ACERTOS_${a}_hi" min="0" max="45" placeholder="45"></div>`).join('');
   $('groups').innerHTML = GROUPS.map((g) => `<h3>${g.title}</h3><div class="chips" id="g_${g.id}">` +
     g.opts.map(([v, l]) => `<label><input type="checkbox" value="${v}">${l}</label>`).join('') + '</div>').join('');
 }
@@ -193,7 +196,7 @@ function addMuni(i) { muniSel.set(i, munis[i].label); $('mq').value = ''; $('sug
 
 function query() {
   const ranges = {}, cats = {};
-  for (const [k, , max] of SCORES) {
+  for (const [k, , max] of [...SCORES, ...['CN', 'CH', 'LC', 'MT'].map((a) => ['ACERTOS_' + a, '', 45])]) {
     const lo = +$(k + '_lo').value || 0, hv = $(k + '_hi').value, hi = hv === '' ? max : +hv;
     if (lo > 0 || hi < max) ranges[k] = [lo, hi];
   }
@@ -266,6 +269,7 @@ $('weights').addEventListener('input', () => {
 $('statop').innerHTML = OPS.map(([v, l]) => `<option value="${v}">Destaque: ${l}</option>`).join('');
 $('statop').onchange = () => renderStats(lastStats);
 $('sort').onchange = () => { pageOff = 0; requestPage(); };
+$('rankmetric').onchange = () => { pageOff = 0; requestPage(); };
 $('prev').onclick = () => { pageOff = Math.max(0, pageOff - PAGE); requestPage(); };
 $('next').onclick = () => { pageOff += PAGE; requestPage(); };
 for (const id of ['map', 'rank']) $(id).addEventListener('click', (e) => { const b = e.target.closest('[data-uf]'); if (!b) return; const u = b.dataset.uf; ufSel.has(u) ? ufSel.delete(u) : ufSel.add(u); schedule(); });

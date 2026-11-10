@@ -11,12 +11,16 @@ const WANT = {
   NU_NOTA_CN: [3], NU_NOTA_CH: [3], NU_NOTA_LC: [3], NU_NOTA_MT: [3],
   NU_NOTA_COMP1: [3], NU_NOTA_COMP2: [3], NU_NOTA_COMP3: [3], NU_NOTA_COMP4: [3], NU_NOTA_COMP5: [3],
   NU_NOTA_REDACAO: [3],
+  TX_RESPOSTAS_CN: [8, 0], TX_RESPOSTAS_CH: [8, 1], TX_RESPOSTAS_LC: [8, 2], TX_RESPOSTAS_MT: [8, 3],
+  TX_GABARITO_CN: [9, 0], TX_GABARITO_CH: [9, 1], TX_GABARITO_LC: [9, 2], TX_GABARITO_MT: [9, 3],
 };
-const TYPES = [null, Int32Array, Uint8Array, Float32Array, Uint8Array, null, Uint16Array];
+const TYPES = [null, Int32Array, Uint8Array, Float32Array, Uint8Array, null, Uint16Array, null, Uint8Array, null];
+const HIT_KEYS = ['ACERTOS_CN', 'ACERTOS_CH', 'ACERTOS_LC', 'ACERTOS_MT'];
+const responseSpans = new Int32Array(16).fill(-1);
 const dec = new TextDecoder('utf-8', { fatal: true }), lat = new TextDecoder('windows-1252');
 
 let cols = null, n = 0, cap = 0, plan = [], maxF = 0, ready = false;
-let ufLut, ufNames, dicts, cur;
+let ufLut, ufNames, dicts, cur, hitPlan = [];
 
 function num(b, s, e) { // "524.1" -> 524.1, empty -> NaN; ignores quotes and stray bytes
   let v = 0, sc = 0, any = false;
@@ -45,19 +49,22 @@ function setup(headerLine) {
   names.forEach((raw, i) => {
     const w = WANT[raw.trim().replace(/"/g, '')];
     if (!w) return;
-    plan[i] = { name: raw.trim().replace(/"/g, ''), k: w[0], g: w[1], a: w[0] === 5 ? null : new TYPES[w[0]](cap) };
+    plan[i] = { name: raw.trim().replace(/"/g, ''), k: w[0], g: w[1], a: [5, 8, 9].includes(w[0]) ? null : new TYPES[w[0]](cap) };
     maxF = i;
   });
+  hitPlan = HIT_KEYS.map((name) => ({ name, k: 2, a: new Uint8Array(cap), hit: true }));
+  plan.push(...hitPlan);
   if (plan.length === 0) throw new Error('Cabeçalho inválido: nenhuma coluna conhecida');
 }
 function addRow(b, p, le) {
   if (n === cap) grow();
-  let s = p;
+  let s = p; responseSpans.fill(-1);
   for (let f = 0; f <= maxF; f++) {
     let e = b.indexOf(59, s);
     if (e < 0 || e > le) e = le;
     const pl = plan[f];
     if (pl) {
+      if (pl.k === 8 || pl.k === 9) { responseSpans[(pl.k - 8) * 8 + pl.g * 2] = s; responseSpans[(pl.k - 8) * 8 + pl.g * 2 + 1] = e; }
       switch (pl.k) {
         case 1: { const v = num(b, s, e); pl.a[n] = v === v ? v : 0; break; }
         case 2: { const v = num(b, s, e); pl.a[n] = v === v && v < 255 ? v : 255; break; }
@@ -71,6 +78,7 @@ function addRow(b, p, le) {
           pl.a[n] = u; break;
         }
         case 5: cur[pl.g] = num(b, s, e); break;
+        case 8: case 9: break;
         case 6: {
           const d = dicts[pl.g], code = cur[pl.g];
           if (code !== code) { pl.a[n] = 65535; break; }
@@ -82,6 +90,12 @@ function addRow(b, p, le) {
     }
     if (e === le) break;
     s = e + 1;
+  }
+  for (let a = 0; a < 4; a++) {
+    const rs = responseSpans[a * 2], re = responseSpans[a * 2 + 1], ks = responseSpans[8 + a * 2], ke = responseSpans[9 + a * 2];
+    let hits = 0;
+    if (rs >= 0 && ks >= 0) for (let j = 0, lim = Math.min(re - rs, ke - ks); j < lim; j++) { const x = b[rs + j], y = b[ks + j]; if (x >= 65 && x <= 69 && x === y) hits++; }
+    hitPlan[a].a[n] = rs >= 0 && ks >= 0 && re > rs && ke > ks ? hits : 255;
   }
   n++;
 }
@@ -146,7 +160,7 @@ async function saveCache(file) {
   try {
     await tx(db, 'readwrite', (s) => s.clear());
     for (const k in cols) await tx(db, 'readwrite', (s) => s.put(cols[k], 'col:' + k));
-    const meta = { v: 1, rows: n, cols: Object.keys(cols), ufNames, dicts: dicts.map((d) => ({ names: d.names, codes: d.codes })),
+    const meta = { v: 2, rows: n, cols: Object.keys(cols), ufNames, dicts: dicts.map((d) => ({ names: d.names, codes: d.codes })),
       file: { name: file.name, size: file.size }, savedAt: Date.now() };
     await tx(db, 'readwrite', (s) => s.put(meta, 'meta')); // written last: a partial save is never used
   } finally { db.close(); }
@@ -155,7 +169,7 @@ async function loadCache() {
   const t0 = performance.now(), db = await idb();
   try {
     const meta = await tx(db, 'readonly', (s) => s.get('meta'));
-    if (!meta) throw new Error('Nenhum dado salvo.');
+    if (!meta || meta.v !== 2) throw new Error('Dados salvos incompatíveis; selecione o CSV novamente.');
     const c = {};
     for (const k of meta.cols) c[k] = await tx(db, 'readonly', (s) => s.get('col:' + k));
     cols = c; n = meta.rows; ufNames = meta.ufNames; dicts = meta.dicts; ready = true;
@@ -188,6 +202,7 @@ function filter(q) {
   const mset = q.muni && q.muni.length ? new Uint8Array(65536) : null, mc = cols.NO_MUNICIPIO_PROVA;
   if (mset) for (const i of q.muni) mset[i] = 1;
   const sa = SK.map((k) => cols[k]), ns = SK.length;
+  for (const k of HIT_KEYS) if (q.ranges && q.ranges[k]) { rc.push(cols[k]); lo.push(q.ranges[k][0]); hi.push(q.ranges[k][1]); }
   const sum = new Float64Array(ns), sq = new Float64Array(ns), cn = new Float64Array(ns);
   const mn = new Float64Array(ns).fill(Infinity), mx = new Float64Array(ns).fill(-Infinity), hist = new Uint32Array(ns * 1001);
   const mcol = q.metric >= 0 ? sa[q.metric] : null; // per-UF metric: counts/means ignore the UF filter itself, so the map stays informative
@@ -220,7 +235,7 @@ function row(i) {
   const g = (k) => cols[k][i], nm = dicts[1].names[g('NO_MUNICIPIO_PROVA')];
   return { id: g('NU_SEQUENCIAL'), esc: g('CO_ESCOLA'), uf: ufNames[g('SG_UF_PROVA')] || null, muni: nm === undefined ? null : nm,
     dep: g('TP_DEPENDENCIA_ADM_ESC'), loc: g('TP_LOCALIZACAO_ESC'), lin: g('TP_LINGUA'), red: g('TP_STATUS_REDACAO'),
-    pres: ['CN', 'CH', 'LC', 'MT'].map((a) => g('TP_PRESENCA_' + a)), n: SK.map((k) => { const x = g(k); return x === x ? Math.round(x * 10) / 10 : null; }) };
+    pres: ['CN', 'CH', 'LC', 'MT'].map((a) => g('TP_PRESENCA_' + a)), hits: HIT_KEYS.map((k) => { const x = g(k); return x === 255 ? null : x; }), n: SK.map((k) => { const x = g(k); return x === x ? Math.round(x * 10) / 10 : null; }) };
 }
 function scorer(q) { // value to sort by: a score column, or the simple/weighted average, with a missing score counting as 0 (weight 0 skips a score; NaN only if every weight is 0)
   if (cols[q.sort]) { const c = cols[q.sort]; return (i) => c[i]; }
@@ -246,7 +261,16 @@ function page(q) { // unsorted: file order, any page; sorted: top 200 by one sco
     }
     idx = ti.slice(q.offset, q.offset + q.limit);
   }
-  postMessage({ t: 'page', id: q.id, total: matchN, rows: Array.from(idx, row) });
+  const rows = Array.from(idx, row);
+  if (q.rankKey && cols[q.rankKey]) {
+    const score = cols[q.rankKey], state = cols.SG_UF_PROVA, city = cols.NO_MUNICIPIO_PROVA, school = cols.CO_ESCOLA;
+    for (let r = 0; r < idx.length; r++) { const i = idx[r], x = score[i]; if (!(x === x)) { rows[r].ranks = null; continue; }
+      let all = 1, st = 1, ci = 1, sc = 1;
+      for (let j = 0; j < n; j++) if (score[j] === score[j] && score[j] > x) { all++; if (state[j] === state[i]) st++; if (city[j] === city[i]) ci++; if (school[i] > 0 && school[j] === school[i]) sc++; }
+      rows[r].ranks = { all, state: st, city: ci, school: school[i] > 0 ? sc : null };
+    }
+  }
+  postMessage({ t: 'page', id: q.id, total: matchN, rows });
 }
 self.onmessage = async ({ data }) => {
   try {
