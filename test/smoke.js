@@ -20,9 +20,16 @@ const send = (d, t) => { const p = wait(t); self.onmessage({ data: d }); return 
   console.log(await send({ t: 'load', file }, 'loaded')); await saved;
   const q = async (x) => { const r = await send({ t: 'filter', ...x }, 'result'); console.log(JSON.stringify(x), '->', r.count, '/', r.total, r.ms + 'ms', r.perUf.join(',')); return r; };
   await q({});
-  const cards = await send({ t: 'page', offset: 0, limit: 1, rankKey: 'NU_NOTA_CN' }, 'page');
+  const cards = await send({ t: 'page', offset: 0, limit: 6, rankKey: 'avg' }, 'page');
   assert.deepStrictEqual(cards.rows[0].hits, [5, 5, 45, 5]);
-  assert(Number.isInteger(cards.rows[0].ranks.all) && Number.isInteger(cards.rows[0].ranks.school));
+  const scoreOf = (r) => r.n.reduce((sum, x) => sum + (x === null ? 0 : x), 0) / 5;
+  for (const r of cards.rows) {
+    const score = scoreOf(r);
+    assert.strictEqual(r.ranks.all, 1 + cards.rows.filter((x) => scoreOf(x) > score).length);
+    assert.strictEqual(r.ranks.state, 1 + cards.rows.filter((x) => x.uf === r.uf && scoreOf(x) > score).length);
+    assert.strictEqual(r.ranks.city, 1 + cards.rows.filter((x) => x.muni === r.muni && scoreOf(x) > score).length);
+    assert.strictEqual(r.ranks.school, r.esc > 0 ? 1 + cards.rows.filter((x) => x.esc === r.esc && scoreOf(x) > score).length : null);
+  }
   const hitFilter = await q({ ranges: { ACERTOS_CN: [5, 5] } });
   assert(hitFilter.count > 0);
   const languageFilter = await q({ ranges: { ACERTOS_LC: [45, 45] } });
@@ -50,6 +57,19 @@ const send = (d, t) => { const p = wait(t); self.onmessage({ data: d }); return 
   await send({ t: 'release' }, 'released');
   console.log('cache meta:', (await send({ t: 'init' }, 'cache')).meta.rows, 'rows');
   const l = await send({ t: 'usecache' }, 'loaded'); console.log('from cache:', l.rows, l.cached, l.ufs.join(','), l.munis.length, 'munis');
+  await q({});
+  const cachedRanks = await send({ t: 'page', offset: 0, limit: 6, rankKey: 'avg' }, 'page');
+  assert.deepStrictEqual(cachedRanks.rows.map((r) => r.ranks), cards.rows.map((r) => r.ranks));
   await q({ ranges: { NU_NOTA_REDACAO: [800, 1000] } }); await q({ muni: [0] });
+  const savedMeta = store.get('meta');
+  for (const k of ['RANK_AVG_ALL', 'RANK_AVG_STATE', 'RANK_AVG_CITY', 'RANK_AVG_SCHOOL']) { store.delete('col:' + k); }
+  store.set('meta', { ...savedMeta, v: 3, cols: savedMeta.cols.filter((k) => !k.startsWith('RANK_AVG_')) });
+  await send({ t: 'release' }, 'released');
+  await send({ t: 'init' }, 'cache');
+  const migrated = await send({ t: 'usecache' }, 'loaded');
+  assert(migrated.cached && store.get('meta').v === 4);
+  await q({});
+  const migratedRanks = await send({ t: 'page', offset: 0, limit: 6, rankKey: 'avg' }, 'page');
+  assert.deepStrictEqual(migratedRanks.rows.map((r) => r.ranks), cards.rows.map((r) => r.ranks));
   await send({ t: 'clearcache' }, 'cleared'); console.log('after clear:', (await send({ t: 'init' }, 'nocache')).t);
 })();

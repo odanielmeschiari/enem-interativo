@@ -225,7 +225,10 @@ function initWorker() {
   worker = new Worker('worker.js');
   worker.onerror = (e) => { $('bar').hidden = true; setStatus('Erro ao iniciar o leitor: ' + (e.message || 'veja o console (F12)')); };
   worker.onmessage = ({ data: m }) => {
-    if (m.t === 'progress') {
+    if (m.t === 'precompute') {
+      $('bar').hidden = false; $('bar').removeAttribute('value');
+      setStatus(`Calculando posições padrão para ${fmt(m.rows)} candidatos…`);
+    } else if (m.t === 'progress') {
       $('bar').hidden = false; $('bar').value = m.read / m.size;
       $('status').textContent = `Lendo… ${Math.round(100 * m.read / m.size)}% • ${fmt(m.rows)} linhas • ${Math.round((performance.now() - t0) / 1000)} s`;
     } else if (m.t === 'loaded') {

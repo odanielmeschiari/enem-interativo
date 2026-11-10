@@ -149,6 +149,8 @@ async function load(file) {
   cols = {};
   for (const p of plan) if (p && p.a) cols[p.name] = p.a.slice(0, n);
   plan = []; // free the grown buffers: only the trimmed columns remain
+  postMessage({ t: 'precompute', rows: n });
+  buildSimpleRanks();
   ready = true;
   announce(Math.round(performance.now() - t0), false);
   try { postMessage({ t: 'saving' }); await saveCache(file); postMessage({ t: 'saved' }); }
@@ -156,6 +158,34 @@ async function load(file) {
 }
 function announce(ms, cached) {
   postMessage({ t: 'loaded', rows: n, ufs: ufNames, munis: dicts[1].codes.map((c, i) => [c, dicts[1].names[i]]), ms, cached });
+}
+// Precompute exact default simple-average ranks once, then reuse them on every filter and page.
+function buildSimpleRanks() {
+  const score = new Float64Array(n), order = new Uint32Array(n);
+  for (let i = 0; i < n; i++) {
+    let sum = 0;
+    for (const k of SK) { const x = cols[k][i]; sum += x === x ? x : 0; }
+    score[i] = sum / SK.length; order[i] = i;
+  }
+  order.sort((a, b) => score[b] - score[a] || a - b);
+  const all = new Uint32Array(n), stateRank = new Uint32Array(n), cityRank = new Uint32Array(n), schoolRank = new Uint32Array(n);
+  const states = new Uint32Array(256), cities = new Uint32Array(65536), schools = new Map();
+  const state = cols.SG_UF_PROVA, city = cols.NO_MUNICIPIO_PROVA, school = cols.CO_ESCOLA;
+  for (let start = 0; start < n;) {
+    const value = score[order[start]]; let end = start + 1;
+    while (end < n && score[order[end]] === value) end++;
+    for (let p = start; p < end; p++) {
+      const i = order[p], u = state[i], m = city[i], e = school[i];
+      all[i] = start + 1; stateRank[i] = states[u] + 1; cityRank[i] = cities[m] + 1;
+      schoolRank[i] = e > 0 ? (schools.get(e) || 0) + 1 : 0;
+    }
+    for (let p = start; p < end; p++) {
+      const i = order[p], u = state[i], m = city[i], e = school[i];
+      states[u]++; cities[m]++; if (e > 0) schools.set(e, (schools.get(e) || 0) + 1);
+    }
+    start = end;
+  }
+  cols.RANK_AVG_ALL = all; cols.RANK_AVG_STATE = stateRank; cols.RANK_AVG_CITY = cityRank; cols.RANK_AVG_SCHOOL = schoolRank;
 }
 // Cache: only the compact columns (~300 MB) go to IndexedDB, never the raw CSV.
 const idb = () => new Promise((res, rej) => {
@@ -172,7 +202,7 @@ async function saveCache(file) {
   try {
     await tx(db, 'readwrite', (s) => s.clear());
     for (const k in cols) await tx(db, 'readwrite', (s) => s.put(cols[k], 'col:' + k));
-    const meta = { v: 3, rows: n, cols: Object.keys(cols), ufNames, dicts: dicts.map((d) => ({ names: d.names, codes: d.codes })),
+    const meta = { v: 4, rows: n, cols: Object.keys(cols), ufNames, dicts: dicts.map((d) => ({ names: d.names, codes: d.codes })),
       file: { name: file.name, size: file.size }, savedAt: Date.now() };
     await tx(db, 'readwrite', (s) => s.put(meta, 'meta')); // written last: a partial save is never used
   } finally { db.close(); }
@@ -181,16 +211,21 @@ async function loadCache() {
   const t0 = performance.now(), db = await idb();
   try {
     const meta = await tx(db, 'readonly', (s) => s.get('meta'));
-    if (!meta || meta.v !== 3) throw new Error('Dados salvos incompatíveis; selecione o CSV novamente.');
+    if (!meta || ![3, 4].includes(meta.v)) throw new Error('Dados salvos incompatíveis; selecione o CSV novamente.');
     const c = {};
     for (const k of meta.cols) c[k] = await tx(db, 'readonly', (s) => s.get('col:' + k));
     cols = c; n = meta.rows; ufNames = meta.ufNames; dicts = meta.dicts; ready = true;
+    if (meta.v === 3) {
+      postMessage({ t: 'precompute', rows: n }); buildSimpleRanks();
+      try { postMessage({ t: 'saving' }); await saveCache(meta.file); postMessage({ t: 'saved' }); }
+      catch (err) { postMessage({ t: 'savefail', msg: String(err && err.message || err) }); }
+    }
   } finally { db.close(); }
   announce(Math.round(performance.now() - t0), true);
 }
 async function cacheMeta() {
   const db = await idb();
-  try { const m = await tx(db, 'readonly', (s) => s.get('meta')); return m && m.v === 3 ? { rows: m.rows, file: m.file, savedAt: m.savedAt } : null; }
+  try { const m = await tx(db, 'readonly', (s) => s.get('meta')); return m && [3, 4].includes(m.v) ? { rows: m.rows, file: m.file, savedAt: m.savedAt } : null; }
   finally { db.close(); }
 }
 async function clearCache() { const db = await idb(); try { await tx(db, 'readwrite', (s) => s.clear()); } finally { db.close(); } }
@@ -274,19 +309,25 @@ function page(q) { // unsorted: file order, any page; sorted: top 200 by one sco
   let idx;
   if (!q.sort) idx = matchIdx.subarray(q.offset, Math.min(matchN, q.offset + q.limit));
   else {
-    const val = scorer(q), s = q.dir === 'asc' ? -1 : 1, K = Math.min(matchN, 200, q.offset + q.limit), tv = [], ti = [];
-    for (let j = 0; j < matchN; j++) {
-      const i = matchIdx[j], x = val(i);
-      const v = x !== x ? -Infinity : s * x; // candidates without the score go last in either direction, so every match stays reachable
-      if (tv.length === K && v <= tv[K - 1]) continue;
-      let p = tv.length < K ? tv.length : K - 1;
-      while (p > 0 && tv[p - 1] < v) { tv[p] = tv[p - 1]; ti[p] = ti[p - 1]; p--; }
-      tv[p] = v; ti[p] = i;
+    const val = scorer(q), s = q.dir === 'asc' ? -1 : 1, K = Math.min(matchN, 200, q.offset + q.limit);
+    const hv = new Float64Array(K), hi = new Int32Array(K); let size = 0;
+    for (let j = 0; j < matchN && K; j++) {
+      const i = matchIdx[j], x = val(i), v = x === x ? s * x : -Infinity; // missing values always sort last
+      if (size < K) {
+        let p = size++; hv[p] = v; hi[p] = i;
+        while (p > 0) { const parent = (p - 1) >>> 1; if (hv[parent] <= hv[p]) break; let x = hv[parent]; hv[parent] = hv[p]; hv[p] = x; x = hi[parent]; hi[parent] = hi[p]; hi[p] = x; p = parent; }
+      } else if (v > hv[0]) {
+        hv[0] = v; hi[0] = i; let p = 0;
+        for (;;) { const l = p * 2 + 1, r = l + 1; if (l >= size) break; const c = r < size && hv[r] < hv[l] ? r : l; if (hv[p] <= hv[c]) break; let x = hv[p]; hv[p] = hv[c]; hv[c] = x; x = hi[p]; hi[p] = hi[c]; hi[c] = x; p = c; }
+      }
     }
-    idx = ti.slice(q.offset, q.offset + q.limit);
+    const order = Array.from({ length: size }, (_, i) => i).sort((a, b) => hv[b] - hv[a] || hi[a] - hi[b]);
+    idx = order.slice(q.offset, q.offset + q.limit).map((p) => hi[p]);
   }
   const rows = Array.from(idx, row);
-  if (q.rankKey) {
+  if (q.rankKey === 'avg') {
+    for (let r = 0; r < idx.length; r++) { const i = idx[r]; rows[r].ranks = { all: cols.RANK_AVG_ALL[i], state: cols.RANK_AVG_STATE[i], city: cols.RANK_AVG_CITY[i], school: cols.RANK_AVG_SCHOOL[i] || null }; }
+  } else if (q.rankKey) {
     const state = cols.SG_UF_PROVA, city = cols.NO_MUNICIPIO_PROVA, school = cols.CO_ESCOLA;
     const target = Array.from(idx, (i) => rankValue(i, q.rankKey, q.w)), ranks = Array.from(idx, () => [1, 1, 1, 1]);
     for (let j = 0; j < n; j++) { const value = rankValue(j, q.rankKey, q.w); if (!(value === value)) continue;
