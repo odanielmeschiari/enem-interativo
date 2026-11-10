@@ -31,6 +31,7 @@ const send = (d, t) => { const p = wait(t); self.onmessage({ data: d }); return 
   await q({ ranges: { NU_NOTA_MT: [0, 1000] } });
   const pg = async (x) => { const r = await send({ t: 'page', limit: 3, offset: 0, ...x }, 'page'); console.log('page', JSON.stringify(x), r.total, r.rows.map((y) => y.id + ':' + y.n[4]).join(' ')); };
   await pg({}); await pg({ sort: 'NU_NOTA_REDACAO', dir: 'desc' }); await pg({ sort: 'NU_NOTA_REDACAO', dir: 'asc', offset: 1 });
+  await pg({ sort: 'avg', dir: 'desc', w: [1, 1, 1, 1, 1] }); await pg({ sort: 'wavg', dir: 'desc', w: [0, 0, 0, 1, 0] }); await pg({ sort: 'wavg', dir: 'asc', w: [1, 1, 1, 3, 1] });
   await send({ t: 'release' }, 'released');
   console.log('cache meta:', (await send({ t: 'init' }, 'cache')).meta.rows, 'rows');
   const l = await send({ t: 'usecache' }, 'loaded'); console.log('from cache:', l.rows, l.cached, l.ufs.join(','), l.munis.length, 'munis');

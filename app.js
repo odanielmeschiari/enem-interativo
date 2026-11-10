@@ -101,7 +101,7 @@ function togglePreset(i) { // the form becomes the merge of all selected presets
 }
 function requestPage() {
   const [sort, dir] = $('sort').value.split(':');
-  worker.postMessage({ t: 'page', id: seq, sort: sort || null, dir, offset: pageOff, limit: PAGE });
+  worker.postMessage({ t: 'page', id: seq, sort: sort || null, dir, w: W, offset: pageOff, limit: PAGE });
 }
 const TILES = [[3, 'Matemática'], [1, 'Humanas'], [2, 'Linguagens'], [0, 'Natureza'], [4, 'Redação']]; // [index in r.n, label]; same order as the weight inputs
 const hue = (x) => Math.round(120 * Math.min(1, Math.max(0, (x - 300) / 500))); // 300 or less = red, 800 or more = green
@@ -242,9 +242,12 @@ function start(file) {
 buildFilters(); buildMap();
 $('presets').innerHTML = PRESETS.map(([l], i) => `<button type="button" data-i="${i}">${l}</button>`).join('');
 $('presets').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) togglePreset(+b.dataset.i); });
-$('sort').innerHTML = '<option value="">Ordem do arquivo</option>' + AREAS.flatMap(([k, l]) => [`<option value="${k}:desc">Maior ${l}</option>`, `<option value="${k}:asc">Menor ${l}</option>`]).join('');
+$('sort').innerHTML = '<option value="">Ordem do arquivo</option>' + [['avg', 'média simples'], ['wavg', 'média ponderada']].concat(AREAS.map(([k, l]) => [k, l])).flatMap(([k, l]) => [`<option value="${k}:desc">Maior ${l}</option>`, `<option value="${k}:asc">Menor ${l}</option>`]).join('');
 $('weights').innerHTML = '<span>Pesos da média ponderada:</span>' + TILES.map(([i, l]) => `<label>${l} <input type="number" min="0" step="any" value="1" data-i="${i}"></label>`).join('') + '<span>Sem alguma nota, a média fica “–”.</span>';
-$('weights').addEventListener('input', () => { renderCards(); if (lastStats.length) renderStats(lastStats); });
+$('weights').addEventListener('input', () => {
+  renderCards(); if (lastStats.length) renderStats(lastStats);
+  if ($('sort').value.startsWith('wavg')) { pageOff = 0; requestPage(); } // order depends on the weights
+});
 $('statop').innerHTML = OPS.map(([v, l]) => `<option value="${v}">Destaque: ${l}</option>`).join('');
 $('statop').onchange = () => renderStats(lastStats);
 $('sort').onchange = () => { pageOff = 0; requestPage(); };

@@ -220,13 +220,22 @@ function row(i) {
     dep: g('TP_DEPENDENCIA_ADM_ESC'), loc: g('TP_LOCALIZACAO_ESC'), lin: g('TP_LINGUA'), red: g('TP_STATUS_REDACAO'),
     pres: ['CN', 'CH', 'LC', 'MT'].map((a) => g('TP_PRESENCA_' + a)), n: SK.map((k) => { const x = g(k); return x === x ? Math.round(x * 10) / 10 : null; }) };
 }
+function scorer(q) { // value to sort by: a score column, or the simple/weighted average (NaN if a needed score is missing; weight 0 skips a score)
+  if (cols[q.sort]) { const c = cols[q.sort]; return (i) => c[i]; }
+  const a = SK.map((k) => cols[k]), w = q.sort === 'wavg' ? q.w : [1, 1, 1, 1, 1];
+  return (i) => {
+    let s = 0, t = 0;
+    for (let k = 0; k < a.length; k++) if (w[k] > 0) { const x = a[k][i]; if (x !== x) return NaN; s += w[k] * x; t += w[k]; }
+    return t ? s / t : NaN;
+  };
+}
 function page(q) { // unsorted: file order, any page; sorted: top 200 by one score
   let idx;
   if (!q.sort) idx = matchIdx.subarray(q.offset, Math.min(matchN, q.offset + q.limit));
   else {
-    const col = cols[q.sort], s = q.dir === 'asc' ? -1 : 1, K = Math.min(matchN, 200, q.offset + q.limit), tv = [], ti = [];
+    const val = scorer(q), s = q.dir === 'asc' ? -1 : 1, K = Math.min(matchN, 200, q.offset + q.limit), tv = [], ti = [];
     for (let j = 0; j < matchN; j++) {
-      const i = matchIdx[j], x = col[i];
+      const i = matchIdx[j], x = val(i);
       if (x !== x) continue;
       const v = s * x;
       if (tv.length === K && v <= tv[K - 1]) continue;
