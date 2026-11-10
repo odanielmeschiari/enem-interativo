@@ -220,12 +220,12 @@ function row(i) {
     dep: g('TP_DEPENDENCIA_ADM_ESC'), loc: g('TP_LOCALIZACAO_ESC'), lin: g('TP_LINGUA'), red: g('TP_STATUS_REDACAO'),
     pres: ['CN', 'CH', 'LC', 'MT'].map((a) => g('TP_PRESENCA_' + a)), n: SK.map((k) => { const x = g(k); return x === x ? Math.round(x * 10) / 10 : null; }) };
 }
-function scorer(q) { // value to sort by: a score column, or the simple/weighted average of the scores a candidate has (NaN if none; weight 0 skips a score)
+function scorer(q) { // value to sort by: a score column, or the simple/weighted average, with a missing score counting as 0 (weight 0 skips a score; NaN only if every weight is 0)
   if (cols[q.sort]) { const c = cols[q.sort]; return (i) => c[i]; }
   const a = SK.map((k) => cols[k]), w = q.sort === 'wavg' ? q.w : [1, 1, 1, 1, 1];
   return (i) => {
     let s = 0, t = 0;
-    for (let k = 0; k < a.length; k++) if (w[k] > 0) { const x = a[k][i]; if (x === x) { s += w[k] * x; t += w[k]; } }
+    for (let k = 0; k < a.length; k++) if (w[k] > 0) { const x = a[k][i]; s += w[k] * (x === x ? x : 0); t += w[k]; }
     return t ? s / t : NaN;
   };
 }
