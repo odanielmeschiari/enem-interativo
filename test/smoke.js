@@ -35,6 +35,17 @@ const send = (d, t) => { const p = wait(t); self.onmessage({ data: d }); return 
     assert.strictEqual(r.ranks.city, 1 + cards.rows.filter((x) => x.muni === r.muni && scoreOf(x) > score).length);
     assert.strictEqual(r.ranks.school, r.esc > 0 ? 1 + cards.rows.filter((x) => x.esc === r.esc && scoreOf(x) > score).length : null);
   }
+  const checkDetail = async (rows) => { // one CSV row re-read on demand must agree with what the load computed
+    for (const r of rows) {
+      const d = await send({ t: 'detail', id: r.i, i: r.i, file }, 'detail');
+      assert(!d.error, d.error);
+      d.sheet.forEach((s, k) => { if (s) assert.strictEqual([...s.a].filter((a, j) => a >= 'A' && a <= 'E' && a === s.k[j]).length, r.hits[k]); });
+      assert.strictEqual(d.essay.final.length, 6);
+    }
+    const bad = await send({ t: 'detail', id: 99, i: 0, file: new File([fs.readFileSync(f).subarray(0, 300)], 'y.csv') }, 'detail');
+    assert(bad.error, 'a different file must be rejected');
+  };
+  await checkDetail(cards.rows); console.log('detail ok', JSON.stringify((await send({ t: 'detail', id: 1, i: cards.rows[0].i, file }, 'detail')).essay));
   const hitFilter = await q({ ranges: { ACERTOS_CN: [5, 5] } });
   assert(hitFilter.count > 0);
   const combinedFilter = await q({ ranges: { MEDIA_SIMPLES: [595, 596], ACERTOS_TOTAL: [60, 60] } });
@@ -67,6 +78,7 @@ const send = (d, t) => { const p = wait(t); self.onmessage({ data: d }); return 
   console.log('cache meta:', (await send({ t: 'init' }, 'cache')).meta.rows, 'rows');
   const l = await send({ t: 'usecache' }, 'loaded'); console.log('from cache:', l.rows, l.cached, l.ufs.join(','), l.munis.length, 'munis');
   await q({});
+  await checkDetail((await send({ t: 'page', offset: 0, limit: 6, rankKey: 'avg' }, 'page')).rows); // also works after loading from the cache
   const cachedRanks = await send({ t: 'page', offset: 0, limit: 6, rankKey: 'avg' }, 'page');
   assert.deepStrictEqual(cachedRanks.rows.map((r) => r.ranks), cards.rows.map((r) => r.ranks));
   await q({ ranges: { NU_NOTA_REDACAO: [800, 1000] } }); await q({ muni: [0] });

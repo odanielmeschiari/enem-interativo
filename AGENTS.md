@@ -14,7 +14,7 @@ Offline, browser-based tool to filter the ENEM 2025 microdata (CSV, ~5M+ rows, 2
 - **Language:** code, comments, commit messages, docs in **English**. User-facing UI text in **Brazilian Portuguese**.
 
 ## Data (semicolon-separated, header in first line, UTF-8; verify encoding and BOM)
-Always resolve columns **by header name**, never by index. Empty fields are common (missing scores, no school). Ignore all other columns, especially the long text ones (`TX_RESPOSTAS_*`, `TX_GABARITO_*`) and the `*_AV1..AV4` columns.
+Always resolve columns **by header name**, never by index. Empty fields are common (missing scores, no school). Ignore all other columns, especially the long text ones (`TX_RESPOSTAS_*`, `TX_GABARITO_*`) and the `*_AV1..AV4` columns. Exceptions: `TX_RESPOSTAS_*` / `TX_GABARITO_*` are read during the load only to count correct answers, and they (plus the `*_AV1..AV4` scores) are re-read for a single row when a candidate is clicked; none of them is kept in memory.
 
 Keep only:
 - Ids: `NU_SEQUENCIAL`, `CO_ESCOLA`, `CO_MUNICIPIO_ESC`, `CO_MUNICIPIO_PROVA`

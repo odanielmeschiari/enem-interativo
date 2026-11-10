@@ -129,7 +129,7 @@ function averages(n) { // a missing score (absence) counts as 0; the weighted on
   for (let i = 0; i < n.length; i++) { const x = n[i] ?? 0; s += x; ws += W[i] * x; wt += W[i]; }
   return [s / n.length, wt > 0 ? ws / wt : null];
 }
-function card(r) {
+function card(r, k) {
   const dep = LBL('dep'), loc = LBL('loc'), lin = LBL('lin'), red = LBL('red'), tags = [];
   if (r.dep !== 255) tags.push(`Escola ${(dep[r.dep] || '').toLowerCase()}`);
   if (r.loc !== 255) tags.push(loc[r.loc] || '');
@@ -144,14 +144,60 @@ function card(r) {
   const tile = ([i, l]) => `<div class="tile">${r.n[i] === null ? '<div class="dot off">–</div>' : `<div class="dot" style="--h:${hue(r.n[i])}">${f1(r.n[i])}</div>`}<small>${l}</small></div>`;
   const rank = r.ranks ? `<div class="ranks"><span>ENEM <b>${fmt(r.ranks.all)}º</b></span><span>Estado <b>${fmt(r.ranks.state)}º</b></span><span>Cidade <b>${fmt(r.ranks.city)}º</b></span><span>Escola <b>${r.ranks.school ? fmt(r.ranks.school) + 'º' : '—'}</b></span></div>` : '';
   const hits = r.hits.map((v, i) => `<span>${['Natureza', 'Humanas', 'Linguagens', 'Matemática'][i]} <b>${v === null ? '—' : v + '/45'}</b></span>`).join('');
-  return `<div class="cand"><div class="head"><b>Candidato ${r.id}</b><span>${r.muni || '—'} · ${r.uf || '—'}</span></div>` +
+  return `<div class="cand"${k === undefined ? '' : ` data-k="${k}"`}><div class="head"><b>Candidato ${r.id}</b><span>${r.muni || '—'} · ${r.uf || '—'}</span></div>` +
     `<div class="tags">${tags.filter(Boolean).map((t) => `<i>${t}</i>`).join('')}${warn.map((t) => `<i class="warn">${t}</i>`).join('')}</div>` +
     `<div class="avgs"><div><small>Média simples</small><b>${num(avg)}</b></div><div><small>Média ponderada</small><b>${num(wavg)}</b></div><div class="hit-total"><small>Acertos totais</small><b>${totalHits === null ? '—' : fmt(totalHits)}</b><em>${totalHits === null ? 'incompleto' : 'de 180'}</em></div></div>` +
     `<div class="tiles">${TILES.map(tile).join('')}</div><div class="hits"><small>Acertos por área (sobre 45 questões)</small>${hits}</div>${rank}</div>`;
 }
+// Candidate detail: the answer sheet and the per-grader essay scores are not kept in memory; one CSV row is read on click.
+const kv = (mode, fn) => new Promise((res, rej) => {
+  const r = indexedDB.open('enem-cache', 1);
+  r.onupgradeneeded = () => r.result.createObjectStore('kv');
+  r.onsuccess = () => { const db = r.result, t = db.transaction('kv', mode); let q; try { q = fn(t.objectStore('kv')); } catch (e) { db.close(); rej(e); return; } t.oncomplete = () => { db.close(); res(q && q.result); }; t.onerror = t.onabort = () => { db.close(); rej(t.error); }; };
+  r.onerror = () => rej(r.error);
+});
+async function csvFile() { // remembered handle: the browser asks permission once per session; the File is used for one read only
+  if (!window.showOpenFilePicker) throw new Error('Este navegador não consegue reabrir o arquivo. Use Chrome, Chromium ou Edge.');
+  const mode = { mode: 'read' };
+  const h = await kv('readonly', (s) => s.get('handle')).catch(() => null);
+  if (h) try { if (await h.queryPermission(mode) === 'granted' || await h.requestPermission(mode) === 'granted') return await h.getFile(); } catch { /* moved or denied: pick again */ }
+  const [nh] = await showOpenFilePicker({ types: [{ description: 'CSV do ENEM', accept: { 'text/csv': ['.csv'] } }] });
+  kv('readwrite', (s) => s.put(nh, 'handle')).catch(() => {});
+  return nh.getFile();
+}
+let dseq = 0, dRow = null;
+async function openDetail(r) {
+  const id = ++dseq; dRow = r;
+  $('dbody').innerHTML = card(r) + '<p class="mut">Lendo a linha do arquivo…</p>';
+  if (!$('detail').open) $('detail').showModal();
+  try { const file = await csvFile(); worker.postMessage({ t: 'detail', id, i: r.i, file }); }
+  catch (err) { if (id === dseq) $('dbody').innerHTML = card(r) + `<p class="mut">${err.name === 'AbortError' ? 'Seleção do arquivo cancelada.' : err.message}</p>`; }
+}
+function renderDetail(m) {
+  const r = dRow, top = card(r);
+  if (m.error) { $('dbody').innerHTML = top + `<p class="mut">${m.error}</p>`; return; }
+  const cols = [['Nota final', m.essay.final], ...m.essay.av.map(({ j, v }) => ['Corretor ' + j, v])];
+  const cell = (x, max) => x === null ? '<td class="off">—</td>' : `<td style="--p:${100 * x / max}%">${f1(x)}</td>`;
+  const rows = [0, 1, 2, 3, 4, 5].map((i) => `<tr${i === 5 ? ' class="tot"' : ''}><th>${i < 5 ? 'Competência ' + (i + 1) : 'Total'}</th>${cols.map(([, v]) => cell(v[i], i < 5 ? 200 : 1000)).join('')}</tr>`).join('');
+  const essay = m.essay.final.every((x) => x === null) && !m.essay.av.length ? '<p class="mut">Sem notas de redação.</p>'
+    : `<table class="essay"><thead><tr><th></th>${cols.map(([l]) => `<th>${l}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table>`;
+  const lin = r.lin !== 255 ? LBL('lin')[r.lin] : null;
+  const sheets = m.sheet.map((s, k) => {
+    const name = AREAS[k][1];
+    if (!s) return `<div><h3>${name}</h3><p class="mut">Sem gabarito nesta área.</p></div>`;
+    let hits = 0;
+    const qs = [...s.a].map((a, j) => {
+      const key = s.k[j], marked = a >= 'A' && a <= 'E', ok = marked && a === key; hits += ok;
+      return `<div class="q ${ok ? 'hit' : marked ? 'miss' : 'blank'}" title="Questão ${j + 1}: ${marked ? 'marcou ' + a : 'sem alternativa A–E'} · gabarito ${key}"><small>${j + 1}</small><b>${marked ? a : '·'}</b><em>${ok ? '✓' : key}</em></div>`;
+    }).join('');
+    return `<div><h3>${name} <small>${hits}/${s.a.length} acertos${k === 2 && lin && s.a.length === 45 ? ` · questões 1–5: ${lin}` : ''}</small></h3><div class="qs">${qs}</div></div>`;
+  }).join('');
+  $('dbody').innerHTML = top + (m.place ? `<p class="mut">Município e UF da escola: ${m.place}</p>` : '') + `<h3>Redação</h3>${essay}<h3>Gabarito</h3>` +
+    '<p class="mut">Cada quadrado mostra o número da questão, a alternativa marcada e, embaixo, ✓ se acertou ou a resposta certa se errou.</p>' + `<div class="sheets">${sheets}</div>`;
+}
 function renderCards() {
   for (const x of $('weights').querySelectorAll('input')) W[+x.dataset.i] = Math.max(0, +x.value || 0);
-  $('cards').innerHTML = pageRows.length ? pageRows.map(card).join('') : '<p class="mut">Nenhum candidato com esses filtros.</p>';
+  $('cards').innerHTML = pageRows.length ? pageRows.map((r, k) => card(r, k)).join('') : '<p class="mut">Nenhum candidato com esses filtros.</p>';
 }
 function renderPage(m) {
   const avail = $('sort').value ? Math.min(m.total, 200) : m.total;
@@ -264,6 +310,8 @@ function initWorker() {
       pageOff = 0; requestPage();
     } else if (m.t === 'page') {
       if (m.id === seq) renderPage(m);
+    } else if (m.t === 'detail') {
+      if (m.id === dseq) renderDetail(m);
     } else if (m.t === 'cache') {
       cacheInfo = m.meta; showCache(); busy(`Dados salvos encontrados (${m.meta.file.name}). Carregando…`);
       worker.postMessage({ t: 'usecache' });
@@ -271,7 +319,7 @@ function initWorker() {
     else if (m.t === 'saved') { cacheInfo = { saved: true }; showCache(); $('status').textContent = base + ' Salvo para a próxima vez.'; }
     else if (m.t === 'savefail') $('status').textContent = base + ' (não foi possível salvar: ' + m.msg + ')';
     else if (m.t === 'cleared') { cacheInfo = null; showCache(); setStatus('Dados salvos apagados.'); }
-    else if (m.t === 'released') { $('work').hidden = true; $('release').hidden = true; $('file').value = ''; setStatus('Dados liberados da memória.'); }
+    else if (m.t === 'released') { $('detail').close(); $('work').hidden = true; $('release').hidden = true; $('file').value = ''; setStatus('Dados liberados da memória.'); }
     else if (m.t === 'error') { $('bar').hidden = true; setStatus('Erro: ' + m.msg); }
   };
   worker.postMessage({ t: 'init' });
@@ -306,6 +354,10 @@ $('mnext').onclick = () => { muniPage++; renderMuniRank(); };
 $('mrank').addEventListener('click', (e) => { const li = e.target.closest('li'); if (!li) return; const g = +li.dataset.m; muniSel.has(g) ? muniSel.delete(g) : muniSel.set(g, munis[g].label); renderMunis(); schedule(); });
 $('file').onchange = (e) => e.target.files[0] && start(e.target.files[0]);
 $('release').onclick = () => worker.postMessage({ t: 'release' });
+$('cards').addEventListener('click', (e) => { const c = e.target.closest('.cand'); if (c) openDetail(pageRows[+c.dataset.k]); });
+$('dclose').onclick = () => $('detail').close();
+$('detail').addEventListener('click', (e) => { if (e.target === $('detail')) $('detail').close(); }); // click on the backdrop
+$('detail').addEventListener('close', () => { dseq++; $('dbody').innerHTML = ''; });
 $('usecache').onclick = () => { busy('Carregando dados salvos…'); worker.postMessage({ t: 'usecache' }); };
 $('delcache').onclick = () => worker.postMessage({ t: 'clearcache' });
 initWorker();

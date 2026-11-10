@@ -22,6 +22,7 @@ const dec = new TextDecoder('utf-8', { fatal: true }), lat = new TextDecoder('wi
 
 let cols = null, n = 0, cap = 0, plan = [], maxF = 0, ready = false;
 let ufLut, ufNames, dicts, cur, hitPlan = [], rowLang = 255;
+let offs = null, headerText = null; // byte offset of every row (for the candidate detail) and the header line
 
 function num(b, s, e) { // "524.1" -> 524.1, empty -> NaN; ignores quotes and stray bytes
   let v = 0, sc = 0, any = false;
@@ -41,10 +42,12 @@ function text(b, s, e) {
 function grow() {
   cap *= 2;
   for (const p of plan) if (p && p.a) { const t = new p.a.constructor(cap); t.set(p.a); p.a = t; }
+  const o = new Float64Array(cap); o.set(offs); offs = o;
 }
 function setup(headerLine) {
-  const names = text(headerLine, 0, headerLine.length).replace(/^\uFEFF/, '').split(';');
-  cap = 1 << 20; n = 0; plan = []; maxF = 0;
+  headerText = text(headerLine, 0, headerLine.length).replace(/^\uFEFF/, '');
+  const names = headerText.split(';');
+  cap = 1 << 20; n = 0; plan = []; maxF = 0; offs = new Float64Array(cap);
   ufLut = new Uint8Array(65536).fill(255); ufNames = [];
   dicts = [0, 1].map(() => ({ map: new Map(), names: [], codes: [] })); cur = [NaN, NaN];
   names.forEach((raw, i) => {
@@ -57,8 +60,9 @@ function setup(headerLine) {
   plan.push(...hitPlan);
   if (plan.length === 0) throw new Error('Cabeçalho inválido: nenhuma coluna conhecida');
 }
-function addRow(b, p, le) {
+function addRow(b, p, le, abs) { // abs = byte offset of the row in the file
   if (n === cap) grow();
+  offs[n] = abs;
   let s = p; rowLang = 255; responseSpans.fill(-1);
   for (let f = 0; f <= maxF; f++) {
     let e = b.indexOf(59, s);
@@ -111,14 +115,14 @@ function addRow(b, p, le) {
   }
   n++;
 }
-function lines(b, end) { // b[0..end) holds only complete lines
+function lines(b, end, base) { // b[0..end) holds only complete lines; base = file offset of b[0]
   let p = 0;
   while (p < end) {
     const nl = b.indexOf(10, p);
     let le = nl < 0 || nl > end ? end : nl;
     const next = le + 1;
     if (le > p && b[le - 1] === 13) le--;
-    if (le > p) addRow(b, p, le);
+    if (le > p) addRow(b, p, le, base + p);
     p = next;
   }
 }
@@ -133,6 +137,7 @@ async function load(file) {
     read += value.length;
     let b = value;
     if (carry.length) { b = new Uint8Array(carry.length + value.length); b.set(carry); b.set(value, carry.length); }
+    const base = read - b.length; // file offset of b[0]
     let end = b.lastIndexOf(10) + 1;
     if (end === 0) {
       if (b.length > 8e6) throw new Error('Nenhuma quebra de linha encontrada nos primeiros 8 MB: arquivo inválido?');
@@ -140,14 +145,15 @@ async function load(file) {
     }
     let start = 0;
     if (!header) { const nl = b.indexOf(10); setup(b.subarray(0, nl)); header = true; start = nl + 1; }
-    lines(start ? b.subarray(start) : b, end - start);
+    lines(start ? b.subarray(start) : b, end - start, base + start);
     carry = b.slice(end);
     const now = performance.now();
     if (now - last > 100) { last = now; postMessage({ t: 'progress', read, size: file.size, rows: n }); }
   }
-  if (carry.length) lines(carry, carry.length);
+  if (carry.length) lines(carry, carry.length, read - carry.length);
   cols = {};
   for (const p of plan) if (p && p.a) cols[p.name] = p.a.slice(0, n);
+  cols.ROW_OFFSET = offs.slice(0, n); offs = null;
   plan = []; // free the grown buffers: only the trimmed columns remain
   postMessage({ t: 'precompute', rows: n });
   buildSimpleRanks();
@@ -205,7 +211,7 @@ async function saveCache(file) {
     await tx(db, 'readwrite', (s) => s.clear());
     for (const k in cols) await tx(db, 'readwrite', (s) => s.put(cols[k], 'col:' + k));
     const meta = { v: 5, rows: n, cols: Object.keys(cols), ufNames, dicts: dicts.map((d) => ({ names: d.names, codes: d.codes })),
-      file: { name: file.name, size: file.size }, savedAt: Date.now() };
+      file: { name: file.name, size: file.size }, header: headerText, savedAt: Date.now() };
     await tx(db, 'readwrite', (s) => s.put(meta, 'meta')); // written last: a partial save is never used
   } finally { db.close(); }
 }
@@ -216,7 +222,7 @@ async function loadCache() {
     if (!meta || ![3, 4, 5].includes(meta.v)) throw new Error('Dados salvos incompatíveis; selecione o CSV novamente.');
     const c = {};
     for (const k of meta.cols) c[k] = await tx(db, 'readonly', (s) => s.get('col:' + k));
-    cols = c; n = meta.rows; ufNames = meta.ufNames; dicts = meta.dicts; ready = true;
+    cols = c; n = meta.rows; ufNames = meta.ufNames; dicts = meta.dicts; headerText = meta.header || null; ready = true;
     if (meta.v < 5) {
       postMessage({ t: 'precompute', rows: n }); buildSimpleRanks();
       try { postMessage({ t: 'saving' }); await saveCache(meta.file); postMessage({ t: 'saved' }); }
@@ -297,9 +303,34 @@ function filter(q) {
 }
 function row(i) {
   const g = (k) => cols[k][i], nm = dicts[1].names[g('NO_MUNICIPIO_PROVA')];
-  return { id: g('NU_SEQUENCIAL'), esc: g('CO_ESCOLA'), uf: ufNames[g('SG_UF_PROVA')] || null, muni: nm === undefined ? null : nm,
+  return { i, id: g('NU_SEQUENCIAL'), esc: g('CO_ESCOLA'), uf: ufNames[g('SG_UF_PROVA')] || null, muni: nm === undefined ? null : nm,
     dep: g('TP_DEPENDENCIA_ADM_ESC'), loc: g('TP_LOCALIZACAO_ESC'), lin: g('TP_LINGUA'), red: g('TP_STATUS_REDACAO'),
     pres: ['CN', 'CH', 'LC', 'MT'].map((a) => g('TP_PRESENCA_' + a)), hits: HIT_KEYS.map((k) => { const x = g(k); return x === 255 ? null : x; }), n: SK.map((k) => { const x = g(k); return x === x ? Math.round(x * 10) / 10 : null; }) };
+}
+async function detail(q) { // reads ONE row of the CSV on demand (answer sheet, per-grader essay scores); the File is dropped right after
+  try {
+    if (!cols || !cols.ROW_OFFSET || !headerText) throw new Error('Para ver os detalhes, carregue o CSV de novo: os dados salvos não têm as posições das linhas.');
+    const off = cols.ROW_OFFSET[q.i], max = 32768, buf = new Uint8Array(await q.file.slice(off, off + max).arrayBuffer());
+    let e = buf.indexOf(10);
+    if (e < 0 && buf.length === max) throw new Error('Linha do arquivo longa demais.');
+    if (e < 0) e = buf.length;
+    if (e > 0 && buf[e - 1] === 13) e--;
+    const names = headerText.split(';'), vals = text(buf, 0, e).split(';'), f = {};
+    names.forEach((k, j) => { f[k.trim().replace(/"/g, '')] = (vals[j] || '').trim().replace(/"/g, ''); });
+    const nv = (k) => { const x = parseFloat((f[k] || '').replace(',', '.')); return x === x ? x : null; };
+    if (nv('NU_SEQUENCIAL') !== cols.NU_SEQUENCIAL[q.i]) throw new Error('O arquivo escolhido não é o mesmo que foi carregado.');
+    const comps = [1, 2, 3, 4, 5], lang = nv('TP_LINGUA');
+    const essay = { final: [...comps.map((c) => nv('NU_NOTA_COMP' + c)), nv('NU_NOTA_REDACAO')],
+      av: [1, 2, 3, 4].map((j) => ({ j, v: [...comps.map((c) => nv(`NU_NOTA_COMP${c}_AV${j}`)), nv('NU_NOTA_AV' + j)] })).filter((x) => x.v.some((y) => y !== null)) };
+    const sheet = ['CN', 'CH', 'LC', 'MT'].map((a, k) => { // same alignment rule as the hit counter in addRow
+      const r = f['TX_RESPOSTAS_' + a] || '', g = f['TX_GABARITO_' + a] || '';
+      if (!r || !g) return null;
+      if (k === 2 && r.length === 45 && g.length === 50) return lang === 0 || lang === 1 ? { a: r, k: g.slice(lang * 5, lang * 5 + 5) + g.slice(10) } : null;
+      const lim = Math.min(r.length, g.length);
+      return { a: r.slice(0, lim), k: g.slice(0, lim) };
+    });
+    postMessage({ t: 'detail', id: q.id, essay, sheet, place: [f.NO_MUNICIPIO_ESC, f.SG_UF_ESC].filter(Boolean).join(' · ') });
+  } catch (err) { postMessage({ t: 'detail', id: q.id, error: String(err.message || err) }); }
 }
 function hitValue(i, k) { const v = cols[k][i]; return v === 255 ? NaN : v; }
 function rankValue(i, key, w = [1, 1, 1, 1, 1]) {
@@ -355,9 +386,10 @@ self.onmessage = async ({ data }) => {
     if (data.t === 'load') await load(data.file);
     else if (data.t === 'filter' && ready) filter(data);
     else if (data.t === 'page' && ready) page(data);
+    else if (data.t === 'detail') await detail(data);
     else if (data.t === 'init') { let meta = null; try { meta = await cacheMeta(); } catch {} postMessage({ t: meta ? 'cache' : 'nocache', meta }); }
     else if (data.t === 'usecache') await loadCache();
     else if (data.t === 'clearcache') { await clearCache(); postMessage({ t: 'cleared' }); }
-    else if (data.t === 'release') { cols = null; matchIdx = null; n = 0; ready = false; postMessage({ t: 'released' }); }
+    else if (data.t === 'release') { cols = null; matchIdx = null; offs = null; headerText = null; n = 0; ready = false; postMessage({ t: 'released' }); }
   } catch (err) { postMessage({ t: 'error', msg: String(err.message || err) }); }
 };
