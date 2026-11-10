@@ -229,15 +229,14 @@ function scorer(q) { // value to sort by: a score column, or the simple/weighted
     return t ? s / t : NaN;
   };
 }
-function page(q) { // unsorted: file order, any page; sorted: top 200 by one score
+function page(q) { // unsorted: file order, any page; sorted: top 200 by one score or average
   let idx;
   if (!q.sort) idx = matchIdx.subarray(q.offset, Math.min(matchN, q.offset + q.limit));
   else {
     const val = scorer(q), s = q.dir === 'asc' ? -1 : 1, K = Math.min(matchN, 200, q.offset + q.limit), tv = [], ti = [];
     for (let j = 0; j < matchN; j++) {
       const i = matchIdx[j], x = val(i);
-      if (x !== x) continue;
-      const v = s * x;
+      const v = x !== x ? -Infinity : s * x; // candidates without the score go last in either direction, so every match stays reachable
       if (tv.length === K && v <= tv[K - 1]) continue;
       let p = tv.length < K ? tv.length : K - 1;
       while (p > 0 && tv[p - 1] < v) { tv[p] = tv[p - 1]; ti[p] = ti[p - 1]; p--; }
