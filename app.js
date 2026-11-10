@@ -43,6 +43,21 @@ async function buildMap() {
   for (const id of ['points', 'label_points']) svg.querySelector('#' + id)?.remove();
   if (lastResult) renderMap(lastResult);
 }
+const MPAGE = 10; let muniRows = [], muniPage = 0;
+function renderMuniRank() { // [municipality index, candidates, value] sorted by the map metric; the whole list stays here, only one page is drawn
+  const m = lastResult;
+  if (!m) return;
+  const mean = +$('metric').value >= 0, min = Math.max(1, +$('mmin').value || 1);
+  muniRows = [];
+  m.perMuni.forEach((g, k) => { const c = m.perMuniN[k], v = mean ? m.perMuniMean[k] : c; if (c >= min && v) muniRows.push([g, c, v]); });
+  muniRows.sort((a, b) => b[2] - a[2]);
+  const pages = Math.max(1, Math.ceil(muniRows.length / MPAGE)); muniPage = Math.min(muniPage, pages - 1);
+  const from = muniPage * MPAGE, top = muniRows.length ? muniRows[0][2] : 1;
+  $('mrank').innerHTML = muniRows.slice(from, from + MPAGE).map(([g, c, v], j) =>
+    `<li data-m="${g}"${muniSel.has(g) ? ' class="sel"' : ''}><b>${from + j + 1}</b><p>${munis[g].label}<span><i style="width:${100 * v / top}%"></i></span></p><em>${mean ? f1(v) + `<small>${fmt(c)} cand.</small>` : fmt(c)}</em></li>`).join('');
+  $('mpage').textContent = muniRows.length ? `${from + 1}–${Math.min(from + MPAGE, muniRows.length)} de ${fmt(muniRows.length)} municípios` : 'Nenhum município com esse mínimo de candidatos';
+  $('mprev').disabled = muniPage === 0; $('mnext').disabled = muniPage >= pages - 1;
+}
 function renderMap(m) {
   lastResult = m;
   if (!mapEls) return;
@@ -218,7 +233,7 @@ function initWorker() {
       $('count').textContent = fmt(m.count);
       $('pct').textContent = `${(100 * m.count / m.total).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}% do total`;
       $('ms').textContent = `${fmt(m.total)} no total • filtrado em ${m.ms} ms`;
-      lastCount = m.count; renderStats(m.stats); renderMap(m);
+      lastCount = m.count; renderStats(m.stats); renderMap(m); muniPage = 0; renderMuniRank();
       pageOff = 0; requestPage();
     } else if (m.t === 'page') {
       if (m.id === seq) renderPage(m);
@@ -255,6 +270,10 @@ $('prev').onclick = () => { pageOff = Math.max(0, pageOff - PAGE); requestPage()
 $('next').onclick = () => { pageOff += PAGE; requestPage(); };
 for (const id of ['map', 'rank']) $(id).addEventListener('click', (e) => { const b = e.target.closest('[data-uf]'); if (!b) return; const u = b.dataset.uf; ufSel.has(u) ? ufSel.delete(u) : ufSel.add(u); schedule(); });
 $('metric').onchange = schedule;
+$('mmin').oninput = () => { muniPage = 0; renderMuniRank(); };
+$('mprev').onclick = () => { muniPage--; renderMuniRank(); };
+$('mnext').onclick = () => { muniPage++; renderMuniRank(); };
+$('mrank').addEventListener('click', (e) => { const li = e.target.closest('li'); if (!li) return; const g = +li.dataset.m; muniSel.has(g) ? muniSel.delete(g) : muniSel.set(g, munis[g].label); renderMunis(); schedule(); });
 $('file').onchange = (e) => e.target.files[0] && start(e.target.files[0]);
 $('release').onclick = () => worker.postMessage({ t: 'release' });
 $('usecache').onclick = () => { busy('Carregando dados salvos…'); worker.postMessage({ t: 'usecache' }); };

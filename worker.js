@@ -192,16 +192,17 @@ function filter(q) {
   const mn = new Float64Array(ns).fill(Infinity), mx = new Float64Array(ns).fill(-Infinity), hist = new Uint32Array(ns * 1001);
   const mcol = q.metric >= 0 ? sa[q.metric] : null; // per-UF metric: counts/means ignore the UF filter itself, so the map stays informative
   const uf = cols.SG_UF_PROVA, pc = new Uint32Array(32), ps = new Float64Array(32), pn = new Uint32Array(32);
+  const mcn = new Uint32Array(65536), mcs = new Float64Array(65536), mcp = new Uint32Array(65536); // per-municipality count / score sum / scored count: ignore the municipality filter itself, respect the UF one
   const nr = rc.length, nc = cc.length;
   if (!matchIdx || matchIdx.length < n) matchIdx = new Int32Array(n);
   let count = 0;
   outer: for (let i = 0; i < n; i++) {
     for (let k = 0; k < nr; k++) { const v = rc[k][i]; if (!(v >= lo[k] && v <= hi[k])) continue outer; } // NaN fails
     for (let k = 0; k < nc; k++) { const m = cc[k][i]; if (m > 30 || !((cm[k] >>> m) & 1)) continue outer; }
-    if (mset && !mset[mc[i]]) continue;
-    const u = uf[i];
-    if (u < 32) { pc[u]++; if (mcol) { const x = mcol[i]; if (x === x) { ps[u] += x; pn[u]++; } } }
-    if (ufm && (u > 30 || !((ufm >>> u) & 1))) continue;
+    const u = uf[i], muOk = !mset || mset[mc[i]] === 1, ufOk = !ufm || (u <= 30 && ((ufm >>> u) & 1) === 1);
+    if (muOk && u < 32) { pc[u]++; if (mcol) { const x = mcol[i]; if (x === x) { ps[u] += x; pn[u]++; } } }
+    if (ufOk) { const g = mc[i]; mcn[g]++; if (mcol) { const x = mcol[i]; if (x === x) { mcs[g] += x; mcp[g]++; } } }
+    if (!muOk || !ufOk) continue;
     matchIdx[count++] = i;
     for (let k = 0; k < ns; k++) {
       const x = sa[k][i];
@@ -209,9 +210,10 @@ function filter(q) {
     }
   }
   matchN = count;
-  const nu = ufNames.length;
+  const nu = ufNames.length, pm = [], pmn = [], pmm = [];
+  for (let g = 0; g < dicts[1].names.length; g++) if (mcn[g]) { pm.push(g); pmn.push(mcn[g]); pmm.push(mcp[g] ? mcs[g] / mcp[g] : null); }
   postMessage({ t: 'result', id: q.id, count, total: n, ms: +(performance.now() - t0).toFixed(1), ufs: ufNames,
-    perUf: Array.from(pc.subarray(0, nu)), perUfMean: Array.from(ps.subarray(0, nu), (s, u) => (pn[u] ? s / pn[u] : null)),
+    perMuni: pm, perMuniN: pmn, perMuniMean: pmm, perUf: Array.from(pc.subarray(0, nu)), perUfMean: Array.from(ps.subarray(0, nu), (s, u) => (pn[u] ? s / pn[u] : null)),
     stats: SK.map((_, k) => summarize(k, sum, sq, cn, mn, mx, hist)) });
 }
 function row(i) {
