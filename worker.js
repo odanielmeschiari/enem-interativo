@@ -291,7 +291,7 @@ function filter(q) {
     if (simple < simpleMin) simpleMin = simple; if (simple > simpleMax) simpleMax = simple;
     simpleHist[Math.min(1000, (simple + 0.5) | 0)]++;
   }
-  matchN = count;
+  matchN = count; sortedIdx = null;
   const nu = ufNames.length, pm = [], pmn = [], pmm = [];
   for (let g = 0; g < dicts[1].names.length; g++) if (mcn[g]) { pm.push(g); pmn.push(mcn[g]); pmm.push(mcp[g] ? mcs[g] / mcp[g] : null); }
   const hitStats = Array.from({ length: 5 }, (_, k) => { const c = hitN[k], hist = k === 4 ? totalHitHist : hitHist, off = k === 4 ? 0 : k * 46, end = k === 4 ? 181 : 46; let med = null, cum = 0; if (c) for (let v = 0; v < end; v++) { cum += hist[off + v]; if (cum >= Math.ceil(c / 2)) { med = v; break; } } return { n: c, mean: c ? hitSum[k] / c : null, median: med, min: c ? hitMin[k] : null, max: c ? hitMax[k] : null }; });
@@ -349,25 +349,22 @@ function scorer(q) { // sort by an exam score, answer count, or mean
     return t ? s / t : NaN;
   };
 }
-function page(q) { // unsorted: file order, any page; sorted: top 200 by one score or average
-  let idx;
-  if (!q.sort) idx = matchIdx.subarray(q.offset, Math.min(matchN, q.offset + q.limit));
-  else {
-    const val = scorer(q), s = q.dir === 'asc' ? -1 : 1, K = Math.min(matchN, 200, q.offset + q.limit);
-    const hv = new Float64Array(K), hi = new Int32Array(K); let size = 0;
-    for (let j = 0; j < matchN && K; j++) {
-      const i = matchIdx[j], x = val(i), v = x === x ? s * x : -Infinity; // missing values always sort last
-      if (size < K) {
-        let p = size++; hv[p] = v; hi[p] = i;
-        while (p > 0) { const parent = (p - 1) >>> 1; if (hv[parent] <= hv[p]) break; let x = hv[parent]; hv[parent] = hv[p]; hv[p] = x; x = hi[parent]; hi[parent] = hi[p]; hi[p] = x; p = parent; }
-      } else if (v > hv[0]) {
-        hv[0] = v; hi[0] = i; let p = 0;
-        for (;;) { const l = p * 2 + 1, r = l + 1; if (l >= size) break; const c = r < size && hv[r] < hv[l] ? r : l; if (hv[p] <= hv[c]) break; let x = hv[p]; hv[p] = hv[c]; hv[c] = x; x = hi[p]; hi[p] = hi[c]; hi[c] = x; p = c; }
-      }
-    }
-    const order = Array.from({ length: size }, (_, i) => i).sort((a, b) => hv[b] - hv[a] || hi[a] - hi[b]);
-    idx = order.slice(q.offset, q.offset + q.limit).map((p) => hi[p]);
+let sortedKey = '', sortedIdx = null; // all matches in sort order, reused while paging
+function sortedMatches(q) { // key = score in 0.001 steps, packed with the row index so one native typed-array sort orders everything (ties: file order)
+  const key = [q.sort, q.dir, q.w].join('|');
+  if (key === sortedKey && sortedIdx) return sortedIdx;
+  const val = scorer(q), asc = q.dir === 'asc', R = 67108864, packed = new Float64Array(matchN); // R = 2^26 > row count
+  for (let j = 0; j < matchN; j++) {
+    const i = matchIdx[j], x = val(i), r = x === x ? Math.round(x * 1000) : 2e6; // missing values always sort last
+    packed[j] = (x !== x || asc ? r : 1e6 - r) * R + i;
   }
+  packed.sort();
+  sortedIdx = new Int32Array(matchN); sortedKey = key;
+  for (let j = 0; j < matchN; j++) sortedIdx[j] = packed[j] % R;
+  return sortedIdx;
+}
+function page(q) { // unsorted: file order; sorted: every match ordered by one score, answer count or mean
+  const src = q.sort ? sortedMatches(q) : matchIdx, idx = src.subarray(q.offset, Math.min(matchN, q.offset + q.limit));
   const rows = Array.from(idx, row);
   if (q.rankKey === 'avg') {
     for (let r = 0; r < idx.length; r++) { const i = idx[r]; rows[r].ranks = { all: cols.RANK_AVG_ALL[i], state: cols.RANK_AVG_STATE[i], city: cols.RANK_AVG_CITY[i], school: cols.RANK_AVG_SCHOOL[i] || null }; }
@@ -390,6 +387,6 @@ self.onmessage = async ({ data }) => {
     else if (data.t === 'init') { let meta = null; try { meta = await cacheMeta(); } catch {} postMessage({ t: meta ? 'cache' : 'nocache', meta }); }
     else if (data.t === 'usecache') await loadCache();
     else if (data.t === 'clearcache') { await clearCache(); postMessage({ t: 'cleared' }); }
-    else if (data.t === 'release') { cols = null; matchIdx = null; offs = null; headerText = null; n = 0; ready = false; postMessage({ t: 'released' }); }
+    else if (data.t === 'release') { cols = null; matchIdx = null; sortedIdx = null; offs = null; headerText = null; n = 0; ready = false; postMessage({ t: 'released' }); }
   } catch (err) { postMessage({ t: 'error', msg: String(err.message || err) }); }
 };

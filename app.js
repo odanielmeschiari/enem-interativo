@@ -211,11 +211,10 @@ function renderCards() {
   $('cards').innerHTML = pageRows.length ? pageRows.map((r, k) => card(r, k)).join('') : '<p class="mut">Nenhum candidato com esses filtros.</p>';
 }
 function renderPage(m) {
-  const avail = $('sort').value ? Math.min(m.total, 200) : m.total;
   pageRows = m.rows; renderCards();
-  pageTotal = avail;
-  $('pageinfo').textContent = avail ? `${fmt(pageOff + 1)}–${fmt(pageOff + m.rows.length)} de ${fmt(avail)}` : '';
-  $('prev').disabled = pageOff === 0; $('next').disabled = pageOff + PAGE >= avail;
+  pageTotal = m.total;
+  $('pageinfo').textContent = m.total ? `${fmt(pageOff + 1)}–${fmt(pageOff + m.rows.length)} de ${fmt(m.total)}` : '';
+  $('prev').disabled = pageOff === 0; $('next').disabled = pageOff + PAGE >= m.total;
 }
 const OPS = [['mean', 'Média', 'média'], ['med', 'Mediana', 'mediana'], ['max', 'Maior nota', 'máx'], ['min', 'Menor nota', 'mín'], ['p25', '1º quartil', '1º quartil'], ['p75', '3º quartil', '3º quartil'], ['sd', 'Desvio padrão', 'desvio']];
 let lastStats = [], lastCount = 0, lastSimpleStats = null;
