@@ -188,7 +188,7 @@ function query() {
     if (v.length) for (const k of g.keys) cats[k] = v;
   }
   if ($('nofalta').checked) for (const k of GROUPS.find((g) => g.id === 'pres').keys) cats[k] = (cats[k] || [0, 1, 2]).filter((v) => v !== 0); // no "Faltou" in any exam; ANDs with the presence chips
-  for (const x of document.querySelectorAll('#faltou input:checked')) cats[x.value] = (cats[x.value] || [0, 1, 2]).filter((v) => v === 0); // absent in every checked exam
+  for (const x of document.querySelectorAll('#faltou input:checked')) for (const k of x.value.split(',')) cats[k] = (cats[k] || [0, 1, 2]).filter((v) => v === 0); // absent on every checked exam day
   return { ranges, cats, ufs: [...ufSel], muni: [...muniSel.keys()], metric: +$('metric').value };
 }
 function run() { worker.postMessage({ t: 'filter', id: ++seq, ...query() }); }
