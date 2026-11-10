@@ -21,11 +21,19 @@ const send = (d, t) => { const p = wait(t); self.onmessage({ data: d }); return 
   const q = async (x) => { const r = await send({ t: 'filter', ...x }, 'result'); console.log(JSON.stringify(x), '->', r.count, '/', r.total, r.ms + 'ms', r.perUf.join(',')); return r; };
   await q({});
   const cards = await send({ t: 'page', offset: 0, limit: 1, rankKey: 'NU_NOTA_CN' }, 'page');
-  assert.deepStrictEqual(cards.rows[0].hits, [5, 5, 5, 5]);
+  assert.deepStrictEqual(cards.rows[0].hits, [5, 5, 45, 5]);
   assert(Number.isInteger(cards.rows[0].ranks.all) && Number.isInteger(cards.rows[0].ranks.school));
   const hitFilter = await q({ ranges: { ACERTOS_CN: [5, 5] } });
   assert(hitFilter.count > 0);
+  const languageFilter = await q({ ranges: { ACERTOS_LC: [45, 45] } });
+  assert.strictEqual(languageFilter.count, 2);
+  await q({ ranges: { NU_SEQUENCIAL: [1461268, 1461268] } });
+  const spanish = await send({ t: 'page', offset: 0, limit: 1, rankKey: 'avg' }, 'page');
+  assert.strictEqual(spanish.rows[0].hits[2], 45);
   await q({});
+  const lcSorted = await send({ t: 'page', offset: 0, limit: 3, sort: 'ACERTOS_LC', dir: 'desc', rankKey: 'wavg', w: [1, 1, 1, 1, 1] }, 'page');
+  assert.strictEqual(lcSorted.rows[0].hits[2], 45);
+  assert(Number.isInteger(lcSorted.rows[0].ranks.all));
   const r0 = await send({ t: 'filter', metric: 3 }, 'result');
   console.log('per municipality (idx:n:meanMT)', r0.perMuni.map((g, k) => g + ':' + r0.perMuniN[k] + ':' + (r0.perMuniMean[k] && +r0.perMuniMean[k].toFixed(1))).join(' '));
   console.log('stats redacao', JSON.stringify(r0.stats[4]), '\nmean MT per UF', r0.ufs.join(','), r0.perUfMean.map((x) => x && +x.toFixed(1)).join(','));
@@ -37,7 +45,7 @@ const send = (d, t) => { const p = wait(t); self.onmessage({ data: d }); return 
   await q({ ranges: { NU_NOTA_MT: [0, 1000] } }); // excludes absent (NaN)
   await q({ ranges: { NU_NOTA_MT: [0, 1000] } });
   const pg = async (x) => { const r = await send({ t: 'page', limit: 3, offset: 0, ...x }, 'page'); console.log('page', JSON.stringify(x), r.total, r.rows.map((y) => y.id + ':' + y.n[4]).join(' ')); };
-  await pg({}); await pg({ sort: 'NU_NOTA_REDACAO', dir: 'desc' }); await pg({ sort: 'NU_NOTA_REDACAO', dir: 'asc', offset: 1 });
+  await pg({}); await pg({ sort: 'ACERTOS_LC', dir: 'desc' }); await pg({ sort: 'ACERTOS_TOTAL', dir: 'desc' }); await pg({ sort: 'NU_NOTA_REDACAO', dir: 'desc' }); await pg({ sort: 'NU_NOTA_REDACAO', dir: 'asc', offset: 1 });
   await q({}); await pg({ sort: 'avg', dir: 'desc', w: [1, 1, 1, 1, 1], limit: 6 }); // all 6 rows: those without scores go last await pg({ sort: 'wavg', dir: 'desc', w: [0, 0, 0, 1, 0] }); await pg({ sort: 'wavg', dir: 'asc', w: [1, 1, 1, 3, 1] });
   await send({ t: 'release' }, 'released');
   console.log('cache meta:', (await send({ t: 'init' }, 'cache')).meta.rows, 'rows');

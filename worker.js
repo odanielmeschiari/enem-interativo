@@ -16,11 +16,12 @@ const WANT = {
 };
 const TYPES = [null, Int32Array, Uint8Array, Float32Array, Uint8Array, null, Uint16Array, null, Uint8Array, null];
 const HIT_KEYS = ['ACERTOS_CN', 'ACERTOS_CH', 'ACERTOS_LC', 'ACERTOS_MT'];
+const TOTAL_HITS = 'ACERTOS_TOTAL';
 const responseSpans = new Int32Array(16).fill(-1);
 const dec = new TextDecoder('utf-8', { fatal: true }), lat = new TextDecoder('windows-1252');
 
 let cols = null, n = 0, cap = 0, plan = [], maxF = 0, ready = false;
-let ufLut, ufNames, dicts, cur, hitPlan = [];
+let ufLut, ufNames, dicts, cur, hitPlan = [], rowLang = 255;
 
 function num(b, s, e) { // "524.1" -> 524.1, empty -> NaN; ignores quotes and stray bytes
   let v = 0, sc = 0, any = false;
@@ -58,7 +59,7 @@ function setup(headerLine) {
 }
 function addRow(b, p, le) {
   if (n === cap) grow();
-  let s = p; responseSpans.fill(-1);
+  let s = p; rowLang = 255; responseSpans.fill(-1);
   for (let f = 0; f <= maxF; f++) {
     let e = b.indexOf(59, s);
     if (e < 0 || e > le) e = le;
@@ -67,7 +68,7 @@ function addRow(b, p, le) {
       if (pl.k === 8 || pl.k === 9) { responseSpans[(pl.k - 8) * 8 + pl.g * 2] = s; responseSpans[(pl.k - 8) * 8 + pl.g * 2 + 1] = e; }
       switch (pl.k) {
         case 1: { const v = num(b, s, e); pl.a[n] = v === v ? v : 0; break; }
-        case 2: { const v = num(b, s, e); pl.a[n] = v === v && v < 255 ? v : 255; break; }
+        case 2: { const v = num(b, s, e); pl.a[n] = v === v && v < 255 ? v : 255; if (pl.name === 'TP_LINGUA') rowLang = v === v ? v : 255; break; }
         case 3: pl.a[n] = num(b, s, e); break;
         case 4: {
           let x = 0, y = 0;
@@ -93,9 +94,20 @@ function addRow(b, p, le) {
   }
   for (let a = 0; a < 4; a++) {
     const rs = responseSpans[a * 2], re = responseSpans[a * 2 + 1], ks = responseSpans[8 + a * 2], ke = responseSpans[9 + a * 2];
-    let hits = 0;
-    if (rs >= 0 && ks >= 0) for (let j = 0, lim = Math.min(re - rs, ke - ks); j < lim; j++) { const x = b[rs + j], y = b[ks + j]; if (x >= 65 && x <= 69 && x === y) hits++; }
-    hitPlan[a].a[n] = rs >= 0 && ks >= 0 && re > rs && ke > ks ? hits : 255;
+    let hits = 0, valid = rs >= 0 && ks >= 0 && re > rs && ke > ks;
+    const rn = re - rs, kn = ke - ks;
+    if (valid && a === 2 && rn === 45 && kn === 50) {
+      if (rowLang > 1) valid = false;
+      else for (let j = 0; j < 45; j++) {
+        const keyPos = j < 5 ? j + rowLang * 5 : j + 5;
+        const answer = b[rs + j], key = b[ks + keyPos];
+        if (answer >= 65 && answer <= 69 && answer === key) hits++;
+      }
+    } else if (valid) {
+      const lim = Math.min(rn, kn);
+      for (let j = 0; j < lim; j++) { const answer = b[rs + j], key = b[ks + j]; if (answer >= 65 && answer <= 69 && answer === key) hits++; }
+    }
+    hitPlan[a].a[n] = valid ? hits : 255;
   }
   n++;
 }
@@ -160,7 +172,7 @@ async function saveCache(file) {
   try {
     await tx(db, 'readwrite', (s) => s.clear());
     for (const k in cols) await tx(db, 'readwrite', (s) => s.put(cols[k], 'col:' + k));
-    const meta = { v: 2, rows: n, cols: Object.keys(cols), ufNames, dicts: dicts.map((d) => ({ names: d.names, codes: d.codes })),
+    const meta = { v: 3, rows: n, cols: Object.keys(cols), ufNames, dicts: dicts.map((d) => ({ names: d.names, codes: d.codes })),
       file: { name: file.name, size: file.size }, savedAt: Date.now() };
     await tx(db, 'readwrite', (s) => s.put(meta, 'meta')); // written last: a partial save is never used
   } finally { db.close(); }
@@ -169,7 +181,7 @@ async function loadCache() {
   const t0 = performance.now(), db = await idb();
   try {
     const meta = await tx(db, 'readonly', (s) => s.get('meta'));
-    if (!meta || meta.v !== 2) throw new Error('Dados salvos incompatíveis; selecione o CSV novamente.');
+    if (!meta || meta.v !== 3) throw new Error('Dados salvos incompatíveis; selecione o CSV novamente.');
     const c = {};
     for (const k of meta.cols) c[k] = await tx(db, 'readonly', (s) => s.get('col:' + k));
     cols = c; n = meta.rows; ufNames = meta.ufNames; dicts = meta.dicts; ready = true;
@@ -178,7 +190,7 @@ async function loadCache() {
 }
 async function cacheMeta() {
   const db = await idb();
-  try { const m = await tx(db, 'readonly', (s) => s.get('meta')); return m && { rows: m.rows, file: m.file, savedAt: m.savedAt }; }
+  try { const m = await tx(db, 'readonly', (s) => s.get('meta')); return m && m.v === 3 ? { rows: m.rows, file: m.file, savedAt: m.savedAt } : null; }
   finally { db.close(); }
 }
 async function clearCache() { const db = await idb(); try { await tx(db, 'readwrite', (s) => s.clear()); } finally { db.close(); } }
@@ -208,6 +220,8 @@ function filter(q) {
   const mcol = q.metric >= 0 ? sa[q.metric] : null; // per-UF metric: counts/means ignore the UF filter itself, so the map stays informative
   const uf = cols.SG_UF_PROVA, pc = new Uint32Array(32), ps = new Float64Array(32), pn = new Uint32Array(32);
   const mcn = new Uint32Array(65536), mcs = new Float64Array(65536), mcp = new Uint32Array(65536); // per-municipality count / score sum / scored count: ignore the municipality filter itself, respect the UF one
+  const hitCols = HIT_KEYS.map((k) => cols[k]), hitN = new Uint32Array(5), hitSum = new Float64Array(5), hitMin = new Uint8Array(5).fill(255), hitMax = new Uint8Array(5);
+  const hitHist = new Uint32Array(4 * 46), totalHitHist = new Uint32Array(181);
   const nr = rc.length, nc = cc.length;
   if (!matchIdx || matchIdx.length < n) matchIdx = new Int32Array(n);
   let count = 0;
@@ -219,6 +233,9 @@ function filter(q) {
     if (ufOk) { const g = mc[i]; mcn[g]++; if (mcol) { const x = mcol[i]; if (x === x) { mcs[g] += x; mcp[g]++; } } }
     if (!muOk || !ufOk) continue;
     matchIdx[count++] = i;
+    let totalHits = 0, allHits = true;
+    for (let k = 0; k < 4; k++) { const h = hitCols[k][i]; if (h === 255) allHits = false; else { hitN[k]++; hitSum[k] += h; hitHist[k * 46 + h]++; if (h < hitMin[k]) hitMin[k] = h; if (h > hitMax[k]) hitMax[k] = h; totalHits += h; } }
+    if (allHits) { hitN[4]++; hitSum[4] += totalHits; totalHitHist[totalHits]++; if (totalHits < hitMin[4]) hitMin[4] = totalHits; if (totalHits > hitMax[4]) hitMax[4] = totalHits; }
     for (let k = 0; k < ns; k++) {
       const x = sa[k][i];
       if (x === x) { sum[k] += x; sq[k] += x * x; cn[k]++; if (x < mn[k]) mn[k] = x; if (x > mx[k]) mx[k] = x; hist[k * 1001 + Math.min(1000, (x + 0.5) | 0)]++; }
@@ -227,7 +244,8 @@ function filter(q) {
   matchN = count;
   const nu = ufNames.length, pm = [], pmn = [], pmm = [];
   for (let g = 0; g < dicts[1].names.length; g++) if (mcn[g]) { pm.push(g); pmn.push(mcn[g]); pmm.push(mcp[g] ? mcs[g] / mcp[g] : null); }
-  postMessage({ t: 'result', id: q.id, count, total: n, ms: +(performance.now() - t0).toFixed(1), ufs: ufNames,
+  const hitStats = Array.from({ length: 5 }, (_, k) => { const c = hitN[k], hist = k === 4 ? totalHitHist : hitHist, off = k === 4 ? 0 : k * 46, end = k === 4 ? 181 : 46; let med = null, cum = 0; if (c) for (let v = 0; v < end; v++) { cum += hist[off + v]; if (cum >= Math.ceil(c / 2)) { med = v; break; } } return { n: c, mean: c ? hitSum[k] / c : null, median: med, min: c ? hitMin[k] : null, max: c ? hitMax[k] : null }; });
+  postMessage({ t: 'result', id: q.id, count, total: n, hitStats, ms: +(performance.now() - t0).toFixed(1), ufs: ufNames,
     perMuni: pm, perMuniN: pmn, perMuniMean: pmm, perUf: Array.from(pc.subarray(0, nu)), perUfMean: Array.from(ps.subarray(0, nu), (s, u) => (pn[u] ? s / pn[u] : null)),
     stats: SK.map((_, k) => summarize(k, sum, sq, cn, mn, mx, hist)) });
 }
@@ -237,7 +255,13 @@ function row(i) {
     dep: g('TP_DEPENDENCIA_ADM_ESC'), loc: g('TP_LOCALIZACAO_ESC'), lin: g('TP_LINGUA'), red: g('TP_STATUS_REDACAO'),
     pres: ['CN', 'CH', 'LC', 'MT'].map((a) => g('TP_PRESENCA_' + a)), hits: HIT_KEYS.map((k) => { const x = g(k); return x === 255 ? null : x; }), n: SK.map((k) => { const x = g(k); return x === x ? Math.round(x * 10) / 10 : null; }) };
 }
-function scorer(q) { // value to sort by: a score column, or the simple/weighted average, with a missing score counting as 0 (weight 0 skips a score; NaN only if every weight is 0)
+function hitValue(i, k) { if (k === TOTAL_HITS) { let total = 0; for (const name of HIT_KEYS) { const v = cols[name][i]; if (v === 255) return NaN; total += v; } return total; } const v = cols[k][i]; return v === 255 ? NaN : v; }
+function rankValue(i, key, w = [1, 1, 1, 1, 1]) {
+  if (key === 'avg' || key === 'wavg') { let sum = 0, total = 0; for (let k = 0; k < SK.length; k++) { const weight = key === 'wavg' ? w[k] : 1; if (weight > 0) { const x = cols[SK[k]][i]; sum += weight * (x === x ? x : 0); total += weight; } } return total ? sum / total : NaN; }
+  return cols[key] ? cols[key][i] : NaN;
+}
+function scorer(q) { // sort by an exam score, answer count, or mean
+  if (HIT_KEYS.includes(q.sort) || q.sort === TOTAL_HITS) return (i) => hitValue(i, q.sort);
   if (cols[q.sort]) { const c = cols[q.sort]; return (i) => c[i]; }
   const a = SK.map((k) => cols[k]), w = q.sort === 'wavg' ? q.w : [1, 1, 1, 1, 1];
   return (i) => {
@@ -262,13 +286,13 @@ function page(q) { // unsorted: file order, any page; sorted: top 200 by one sco
     idx = ti.slice(q.offset, q.offset + q.limit);
   }
   const rows = Array.from(idx, row);
-  if (q.rankKey && cols[q.rankKey]) {
-    const score = cols[q.rankKey], state = cols.SG_UF_PROVA, city = cols.NO_MUNICIPIO_PROVA, school = cols.CO_ESCOLA;
-    for (let r = 0; r < idx.length; r++) { const i = idx[r], x = score[i]; if (!(x === x)) { rows[r].ranks = null; continue; }
-      let all = 1, st = 1, ci = 1, sc = 1;
-      for (let j = 0; j < n; j++) if (score[j] === score[j] && score[j] > x) { all++; if (state[j] === state[i]) st++; if (city[j] === city[i]) ci++; if (school[i] > 0 && school[j] === school[i]) sc++; }
-      rows[r].ranks = { all, state: st, city: ci, school: school[i] > 0 ? sc : null };
+  if (q.rankKey) {
+    const state = cols.SG_UF_PROVA, city = cols.NO_MUNICIPIO_PROVA, school = cols.CO_ESCOLA;
+    const target = Array.from(idx, (i) => rankValue(i, q.rankKey, q.w)), ranks = Array.from(idx, () => [1, 1, 1, 1]);
+    for (let j = 0; j < n; j++) { const value = rankValue(j, q.rankKey, q.w); if (!(value === value)) continue;
+      for (let r = 0; r < idx.length; r++) { const i = idx[r]; if (target[r] === target[r] && value > target[r]) { ranks[r][0]++; if (state[j] === state[i]) ranks[r][1]++; if (city[j] === city[i]) ranks[r][2]++; if (school[i] > 0 && school[j] === school[i]) ranks[r][3]++; } }
     }
+    for (let r = 0; r < idx.length; r++) rows[r].ranks = target[r] === target[r] ? { all: ranks[r][0], state: ranks[r][1], city: ranks[r][2], school: school[idx[r]] > 0 ? ranks[r][3] : null } : null;
   }
   postMessage({ t: 'page', id: q.id, total: matchN, rows });
 }

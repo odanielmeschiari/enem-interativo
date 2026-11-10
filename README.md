@@ -15,7 +15,7 @@ Runs entirely in the browser; nothing leaves the machine. The dataset is **not**
 The browser opens at http://localhost:8000. Then:
 1. Click the file field and select the ENEM CSV (the file, not the folder).
 2. Wait for the progress bar (the data is read once, then the file is closed).
-3. Use the filters; the count updates instantly. Candidate cards show correct answers by area and exact rankings for a selectable score area.
+3. Use the filters; the count updates instantly. Candidate cards show correct answers by area, total correct answers, and exact rankings by simple average, weighted average, or a selected area. Candidate results can be sorted by score or correct-answer count.
 4. "Liberar dados da memória" frees the data; reload the page to start over.
 
 Stop the server with `Ctrl+C` in the terminal. If port 8000 is busy, edit `run.sh`.

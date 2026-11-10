@@ -120,7 +120,7 @@ function requestPage() {
 }
 const TILES = [[3, 'Matemática'], [1, 'Humanas'], [2, 'Linguagens'], [0, 'Natureza'], [4, 'Redação']]; // [index in r.n, label]; same order as the weight inputs
 const hue = (x) => Math.round(120 * Math.min(1, Math.max(0, (x - 300) / 500))); // 300 or less = red, 800 or more = green
-let pageRows = [], W = [1, 1, 1, 1, 1];
+let pageRows = [], W = [1, 1, 1, 1, 1], lastHitStats = [];
 function averages(n) { // a missing score (absence) counts as 0; the weighted one is null only if every weight is 0
   let s = 0, ws = 0, wt = 0;
   for (let i = 0; i < n.length; i++) { const x = n[i] ?? 0; s += x; ws += W[i] * x; wt += W[i]; }
@@ -137,12 +137,13 @@ function card(r) {
   if (r.pres.includes(2)) warn.push('Eliminado'); else if (out) warn.push(`Faltou em ${out} prova${out > 1 ? 's' : ''}`);
   if (r.red !== 255 && r.red !== 1) warn.push(`Redação: ${(red[r.red] || 'problema').toLowerCase()}`);
   const [avg, wavg] = averages(r.n);
+  const totalHits = r.hits.every((v) => v !== null) ? r.hits.reduce((a, b) => a + b, 0) : null;
   const tile = ([i, l]) => `<div class="tile">${r.n[i] === null ? '<div class="dot off">–</div>' : `<div class="dot" style="--h:${hue(r.n[i])}">${f1(r.n[i])}</div>`}<small>${l}</small></div>`;
   const rank = r.ranks ? `<div class="ranks"><span>ENEM <b>${fmt(r.ranks.all)}º</b></span><span>Estado <b>${fmt(r.ranks.state)}º</b></span><span>Cidade <b>${fmt(r.ranks.city)}º</b></span><span>Escola <b>${r.ranks.school ? fmt(r.ranks.school) + 'º' : '—'}</b></span></div>` : '';
   const hits = r.hits.map((v, i) => `<span>${['Natureza', 'Humanas', 'Linguagens', 'Matemática'][i]} <b>${v === null ? '—' : v + '/45'}</b></span>`).join('');
   return `<div class="cand"><div class="head"><b>Candidato ${r.id}</b><span>${r.muni || '—'} · ${r.uf || '—'}</span></div>` +
     `<div class="tags">${tags.filter(Boolean).map((t) => `<i>${t}</i>`).join('')}${warn.map((t) => `<i class="warn">${t}</i>`).join('')}</div>` +
-    `<div class="avgs"><div><small>Média simples</small><b>${num(avg)}</b></div><div><small>Média ponderada</small><b>${num(wavg)}</b></div></div>` +
+    `<div class="avgs"><div><small>Média simples</small><b>${num(avg)}</b></div><div><small>Média ponderada</small><b>${num(wavg)}</b></div><div class="hit-total"><small>Acertos totais</small><b>${totalHits === null ? '—' : fmt(totalHits)}</b><em>${totalHits === null ? 'incompleto' : 'de 180'}</em></div></div>` +
     `<div class="tiles">${TILES.map(tile).join('')}</div><div class="hits"><small>Acertos por área (sobre 45 questões)</small>${hits}</div>${rank}</div>`;
 }
 function renderCards() {
@@ -158,13 +159,15 @@ function renderPage(m) {
 }
 const OPS = [['mean', 'Média', 'média'], ['med', 'Mediana', 'mediana'], ['max', 'Maior nota', 'máx'], ['min', 'Menor nota', 'mín'], ['p25', '1º quartil', '1º quartil'], ['p75', '3º quartil', '3º quartil'], ['sd', 'Desvio padrão', 'desvio']];
 let lastStats = [], lastCount = 0;
-function renderStats(st) {
-  lastStats = st;
+function renderStats(st, hitStats = lastHitStats) {
+  lastStats = st; lastHitStats = hitStats;
   const op = $('statop').value, hi = OPS.find((o) => o[0] === op);
   const [avg, wavg] = averages(st.map((s) => s.n ? s.mean * s.n / lastCount : 0)); // overall: every matching candidate counts, absences as 0
   const hero = `<div class="stat hero"><h4>Média geral dos candidatos filtrados</h4><div class="avgs"><div><small>Média simples</small><b>${num(avg)}</b></div><div><small>Média ponderada</small><b>${num(wavg)}</b></div></div>` +
     `<p>Média das 5 áreas, falta vale 0 • pesos: ${TILES.map(([i, l]) => `${l} ${W[i]}`).join(' · ')} (ajuste acima)</p></div>`;
-  $('statgrid').innerHTML = hero + st.map((s, k) => {
+  const hitLabels = ['Natureza', 'Humanas', 'Linguagens', 'Matemática', 'Total'];
+  const hits = hitStats.map((h, i) => `<div class="stat hitstat"><h4>Acertos · ${hitLabels[i]}</h4>${h.n ? `<div class="mean">${f1(h.mean)} <small>média</small></div><p>Mediana ${h.median} · mínimo ${h.min} · máximo ${h.max}<br>${fmt(h.n)} candidatos</p>` : '<p class="mut">Sem dados completos</p>'}</div>`).join('');
+  $('statgrid').innerHTML = hero + hits + st.map((s, k) => {
     const label = AREAS[k][1];
     if (!s.n) return `<div class="stat"><h4>${label}</h4><p class="mut">Sem dados</p></div>`;
     const top = Math.max(...s.bins);
@@ -236,7 +239,7 @@ function initWorker() {
       $('count').textContent = fmt(m.count);
       $('pct').textContent = `${(100 * m.count / m.total).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}% do total`;
       $('ms').textContent = `${fmt(m.total)} no total • filtrado em ${m.ms} ms`;
-      lastCount = m.count; renderStats(m.stats); renderMap(m); muniPage = 0; renderMuniRank();
+      lastCount = m.count; renderStats(m.stats, m.hitStats); renderMap(m); muniPage = 0; renderMuniRank();
       pageOff = 0; requestPage();
     } else if (m.t === 'page') {
       if (m.id === seq) renderPage(m);
@@ -260,11 +263,11 @@ function start(file) {
 buildFilters(); buildMap();
 $('presets').innerHTML = PRESETS.map(([l], i) => `<button type="button" data-i="${i}">${l}</button>`).join('');
 $('presets').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) togglePreset(+b.dataset.i); });
-$('sort').innerHTML = '<option value="">Ordem do arquivo</option>' + [['avg', 'média simples'], ['wavg', 'média ponderada']].concat(AREAS.map(([k, l]) => [k, l])).flatMap(([k, l]) => [`<option value="${k}:desc">Maior ${l}</option>`, `<option value="${k}:asc">Menor ${l}</option>`]).join('');
-$('weights').innerHTML = '<span>Pesos da média ponderada:</span>' + TILES.map(([i, l]) => `<label>${l} <input type="number" min="0" step="any" value="1" data-i="${i}"></label>`).join('') + '<span>Falta conta como nota 0 na média.</span>';
+$('sort').innerHTML = '<option value="">Ordem do arquivo</option>' + [['avg', 'média simples'], ['wavg', 'média ponderada'], ...AREAS.map(([k, l]) => [k, l]), ['ACERTOS_CN', 'acertos em Natureza'], ['ACERTOS_CH', 'acertos em Humanas'], ['ACERTOS_LC', 'acertos em Linguagens'], ['ACERTOS_MT', 'acertos em Matemática'], ['ACERTOS_TOTAL', 'acertos totais']].flatMap(([k, l]) => [`<option value="${k}:desc">Maior ${l}</option>`, `<option value="${k}:asc">Menor ${l}</option>`]).join('');
+$('weights').innerHTML = '<span>Pesos da média ponderada:</span>' + TILES.map(([i, l]) => `<label>${l} <input type="number" min="0" step="any" value="1" data-i="${i}"></label>`).join('') + '<label>Posições por <select id="rankmetric"><option value="avg">Média simples</option><option value="wavg">Média ponderada</option>' + AREAS.map(([k, l]) => `<option value="${k}">${l}</option>`).join('') + '</select></label><span>Falta conta como nota 0 na média.</span>';
 $('weights').addEventListener('input', () => {
   renderCards(); if (lastStats.length) renderStats(lastStats);
-  if ($('sort').value.startsWith('wavg')) { pageOff = 0; requestPage(); } // order depends on the weights
+  if ($('sort').value.startsWith('wavg') || $('rankmetric').value === 'wavg') { pageOff = 0; requestPage(); } // order and ranks depend on the weights
 });
 $('statop').innerHTML = OPS.map(([v, l]) => `<option value="${v}">Destaque: ${l}</option>`).join('');
 $('statop').onchange = () => renderStats(lastStats);

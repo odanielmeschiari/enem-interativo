@@ -89,3 +89,6 @@ body::before { content:""; position:fixed; inset:0; z-index:-1; background:linea
 
 .hits, .ranks { display:flex; flex-wrap:wrap; gap:6px 12px; margin-top:10px; color:var(--mut); font-size:13px; }
 .hits small { flex-basis:100%; } .hits b, .ranks b { color:var(--fg); } .ranks { border-top:1px solid var(--line); padding-top:8px; justify-content:space-between; }
+
+.hit-total b { color:#8fd8ff !important; } .hit-total em { display:block; color:var(--mut); font-size:11px; font-style:normal; }
+.hitstat { min-width:0; } .hitstat .mean { font-size:30px; } #weights select { font:inherit; }
