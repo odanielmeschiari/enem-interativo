@@ -156,8 +156,19 @@ const kv = (mode, fn) => new Promise((res, rej) => {
   r.onsuccess = () => { const db = r.result, t = db.transaction('kv', mode); let q; try { q = fn(t.objectStore('kv')); } catch (e) { db.close(); rej(e); return; } t.oncomplete = () => { db.close(); res(q && q.result); }; t.onerror = t.onabort = () => { db.close(); rej(t.error); }; };
   r.onerror = () => rej(r.error);
 });
+let csvFallback = null; // browsers without showOpenFilePicker (Firefox, Safari): the File picked at load time, kept as a plain reference for this session
+function pickCsv() { // classic file input; must be called straight from the click
+  return new Promise((res, rej) => {
+    const i = document.createElement('input');
+    i.type = 'file'; i.accept = '.csv'; i.hidden = true; document.body.appendChild(i);
+    const done = () => i.remove();
+    i.onchange = () => { done(); i.files[0] ? res(i.files[0]) : rej(new DOMException('', 'AbortError')); };
+    i.oncancel = () => { done(); rej(new DOMException('', 'AbortError')); };
+    i.click();
+  });
+}
 async function csvFile() { // remembered handle: the browser asks permission once per session; the File is used for one read only
-  if (!window.showOpenFilePicker) throw new Error('Este navegador não consegue reabrir o arquivo. Use Chrome, Chromium ou Edge.');
+  if (!window.showOpenFilePicker) return csvFallback || (csvFallback = await pickCsv());
   const mode = { mode: 'read' };
   const h = await kv('readonly', (s) => s.get('handle')).catch(() => null);
   if (h) try { if (await h.queryPermission(mode) === 'granted' || await h.requestPermission(mode) === 'granted') return await h.getFile(); } catch { /* moved or denied: pick again */ }
@@ -175,7 +186,7 @@ async function openDetail(r) {
 }
 function renderDetail(m) {
   const r = dRow, top = card(r);
-  if (m.error) { $('dbody').innerHTML = top + `<p class="mut">${m.error}</p>`; return; }
+  if (m.error) { csvFallback = null; $('dbody').innerHTML = top + `<p class="mut">${m.error}</p>`; return; } // forget a wrong or stale file so the next click asks again
   const cols = [['Nota final', m.essay.final], ...m.essay.av.map(({ j, v }) => ['Corretor ' + j, v])];
   const cell = (x, max) => x === null ? '<td class="off">—</td>' : `<td style="--p:${100 * x / max}%">${f1(x)}</td>`;
   const rows = [0, 1, 2, 3, 4, 5].map((i) => `<tr${i === 5 ? ' class="tot"' : ''}><th>${i < 5 ? 'Competência ' + (i + 1) : 'Total'}</th>${cols.map(([, v]) => cell(v[i], i < 5 ? 200 : 1000)).join('')}</tr>`).join('');
@@ -319,12 +330,13 @@ function initWorker() {
     else if (m.t === 'saved') { cacheInfo = { saved: true }; showCache(); $('status').textContent = base + ' Salvo para a próxima vez.'; }
     else if (m.t === 'savefail') $('status').textContent = base + ' (não foi possível salvar: ' + m.msg + ')';
     else if (m.t === 'cleared') { cacheInfo = null; showCache(); setStatus('Dados salvos apagados.'); }
-    else if (m.t === 'released') { $('detail').close(); $('work').hidden = true; $('release').hidden = true; $('file').value = ''; setStatus('Dados liberados da memória.'); }
+    else if (m.t === 'released') { csvFallback = null; $('detail').close(); $('work').hidden = true; $('release').hidden = true; $('file').value = ''; setStatus('Dados liberados da memória.'); }
     else if (m.t === 'error') { $('bar').hidden = true; setStatus('Erro: ' + m.msg); }
   };
   worker.postMessage({ t: 'init' });
 }
 function start(file) {
+  if (!window.showOpenFilePicker) csvFallback = file;
   busy('Lendo… 0%'); $('bar').value = 0;
   worker.postMessage({ t: 'load', file }); // the worker reads the stream once and drops the file
 }
