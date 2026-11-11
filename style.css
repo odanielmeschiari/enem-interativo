@@ -7,10 +7,9 @@
 :root { color-scheme: dark; --bg:#121212; --card:#2e2e33; --sunk:#26262b; --line:#45454c; --r:8px; --fg:#fafafa; --mut:#bdbdbd; --sel:#43a047; --acc:#f5c842; --body:"Open Sans", system-ui, sans-serif; --head:Rubik, "Open Sans", system-ui, sans-serif; --ui:Inter, system-ui, sans-serif; }
 * { box-sizing: border-box; }
 body { margin:0; background:var(--bg); color:var(--fg); font:20px/1.55 var(--body); }
-header { position:relative; overflow:hidden; height:96px; border-bottom:1px solid var(--line); background:#000; }
-header h1 { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
-.strip { display:flex; align-items:center; gap:40px; height:100%; width:max-content; padding-left:24px; white-space:nowrap; }
-.strip img { height:48px; width:auto; } .strip span { font:700 52px/1 var(--head); text-transform:uppercase; letter-spacing:-.01em; color:#fff; }
+header { position:relative; display:grid; place-items:center; height:104px; border-bottom:1px solid var(--line); background:#222226; overflow:hidden; }
+header::before { content:""; position:absolute; inset:0; background:url(assets/enem-logo.png) 0 center / auto 40px; background-repeat:space no-repeat; opacity:.1; }
+header h1 { position:relative; font-size:44px; font-weight:700; letter-spacing:-.01em; text-shadow:0 0 24px #222226, 0 0 12px #222226; }
 h1 { margin:0; font-size:30px; font-weight:600; } h2 { margin:0 0 16px; font-size:20px; color:var(--fg); font-weight:600; }
 main { max-width:960px; margin:32px auto; padding:0 16px; display:grid; gap:28px; }
 .card { background:var(--card); border:1px solid var(--line); border-radius:var(--r); padding:24px; }
