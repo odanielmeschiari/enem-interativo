@@ -46,11 +46,12 @@ Notes:
 - **Individual entries:** paginated cards/table of matching candidates, cleaned for humans: no raw codes or empty fields (show "—" or hide), rounded scores (1 decimal), labeled categories, score bars colored by range, municipality and UF as text. Make it eye-catching but light.
 - **Presets:** a few one-click filters (e.g. "Nota 1000 na redação", "Maior nota de Matemática", "Escolas privadas urbanas") to make the demo smooth.
 
-## Workflow rules
-1. Work in tiny steps. Order: (1) file picker + streaming loader with progress, (2) filter loop + count, (3) filters UI, (4) stats and histograms, (5) tile map, (6) cleaned entries view, (7) presets and polish. Each step must leave a working app.
-2. **Never rewrite whole files to change a few lines.**
-3. **Deliver every change as a patch file** for `git apply` (e.g. `git diff > 0003-short-name.patch`, or `git format-patch` when asked). Check that it applies to the current state of the repo. Do not paste "replace the whole file" instructions.
-4. **Commits are short**: one imperative line (≤ 60 chars), one logical change. Example: `Add tile-grid UF map`.
-5. Prefer less code. No abstractions, classes or config systems that the demo does not need. No dead code, no TODO piles.
-6. Test with the sample rows (first 10 lines of the CSV, kept as `sample/sample.csv`, small enough for git) and, when the user can, the full file. Report load time and filter time honestly.
-7. If anything is ambiguous, ask one short question instead of guessing; do not invent data or code meanings.
+## Workflow rules for AI Agents
+1. **Scope and File Selection:** 
+   - **Do NOT read the entire codebase or explore unnecessarily before starting.**
+   - First, understand the user's specific request and intent.
+   - Read `AGENTS.md` to understand constraints and architecture.
+   - Identify and open **only** the specific file(s) required for the requested task.
+2. **Direct Modification:** 
+   - Apply changes directly to the codebase (no patch files needed).
+3. **Commit & Steps:** Keep changes minimal, precise, and consistent with the existing style.
