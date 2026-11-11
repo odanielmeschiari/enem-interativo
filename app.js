@@ -266,10 +266,56 @@ function query() {
 function run() { worker.postMessage({ t: 'filter', id: ++seq, ...query() }); }
 function schedule() { clearTimeout(timer); timer = setTimeout(run, 120); }
 
-let cacheInfo = null, base = '';
+let cacheInfo = null, base = '', lastProfile = null;
 const setStatus = (s) => { base = s; $('status').textContent = s; };
 const showCache = () => { $('delcache').hidden = !cacheInfo && $('work').hidden; }; // deleting is offered while data is loaded or saved
 const busy = (txt) => { t0 = performance.now(); $('work').hidden = true; $('bar').hidden = false; $('bar').removeAttribute('value'); setStatus(txt); };
+
+// Profile labels for fields that need a human-readable name even without a dictionary
+const PROFILE_LABELS = {
+  TP_FAIXA_ETARIA: 'Faixa etária',
+  TP_SEXO: 'Sexo',
+  TP_ESTADO_CIVIL: 'Estado civil',
+  TP_COR_RACA: 'Cor/Raça',
+  TP_NACIONALIDADE: 'Nacionalidade',
+  TP_ST_CONCLUSAO: 'Situação do ensino médio',
+  TP_ANO_CONCLUIU: 'Ano de conclusão',
+  TP_ENSINO: 'Tipo de ensino',
+  IN_TREINEIRO: 'Treineiro',
+  SG_UF_PROVA: 'Estado da prova (UF)',
+};
+function profileVarLabel(name) {
+  if (PROFILE_LABELS[name]) return PROFILE_LABELS[name];
+  if (/^Q\d{3}$/.test(name)) return 'Questão soc. ' + name.slice(1).replace(/^0+/, '');
+  return name;
+}
+function renderProfile(profile) {
+  lastProfile = profile;
+  const sec = $('profile-section');
+  if (!profile || !profile.vars || !profile.vars.length) { sec.hidden = true; return; }
+  sec.hidden = false;
+  $('profile-count').textContent = `${fmt(profile.rows)} participantes`;
+  $('profile-grid').innerHTML = profile.vars.map((v) => {
+    const label = (v.desc && v.desc.trim()) ? v.desc : profileVarLabel(v.name);
+    if (!v.opts.length) return '';
+    // opts: [idx, code, labelOrNull, count]; sort by count descending for display
+    const sorted = [...v.opts].sort((a, b) => b[3] - a[3]);
+    const topCount = sorted[0][3] || 1;
+    const MAX_SHOW = 10;
+    const rows = sorted.slice(0, MAX_SHOW).map(([, code, lbl, count]) => {
+      const display = (lbl && lbl.trim()) ? lbl : code;
+      const pct = count / profile.rows;
+      const barW = Math.round(100 * count / topCount);
+      return `<div class="pbar-row"><span class="pbar-name" title="${display}">${display}</span>` +
+        `<span class="pbar-wrap"><i class="pbar-fill" style="width:${barW}%"></i></span>` +
+        `<span class="pbar-val">${fmt(count)}<small>${(100 * pct).toFixed(1)}%</small></span></div>`;
+    }).join('');
+    const more = sorted.length > MAX_SHOW
+      ? `<p class="mut pvar-more">+${sorted.length - MAX_SHOW} categoria${sorted.length - MAX_SHOW > 1 ? 's' : ''} omitida${sorted.length - MAX_SHOW > 1 ? 's' : ''}</p>`
+      : '';
+    return `<div class="pvar"><h4 class="pvar-title">${label}</h4>${rows}${more}</div>`;
+  }).join('');
+}
 
 function initWorker() {
   worker = new Worker('worker.js');
@@ -286,6 +332,7 @@ function initWorker() {
       muniSel.clear(); ufSel.clear(); renderMunis(); hasCopy = m.copy;
       $('bar').hidden = true; $('work').hidden = false; showCache();
       setStatus(`${fmt(m.rows)} linhas carregadas ${m.cached ? 'dos dados salvos' : ''} em ${(m.ms / 1000).toFixed(1)} s.${m.profile ? ` Perfil: ${fmt(m.profile.rows)} participantes.` : ''}${m.notes.length ? ' ' + m.notes.join(' ') : ''}`);
+      renderProfile(m.profile || null);
       run();
     } else if (m.t === 'result') {
       if (m.id !== seq) return;
@@ -305,7 +352,7 @@ function initWorker() {
     else if (m.t === 'saved') { cacheInfo = { saved: true }; showCache(); $('status').textContent = base + ' Salvo para a próxima vez.'; }
     else if (m.t === 'savefail') $('status').textContent = base + ' (não foi possível salvar: ' + m.msg + ')';
     else if (m.t === 'cleared') { cacheInfo = null; showCache(); setStatus('Dados salvos apagados.'); }
-    else if (m.t === 'released') { csvFallback = null; hasCopy = false; $('detail').close(); $('work').hidden = true; showCache(); $('file').value = ''; setStatus('Dados liberados da memória.'); }
+    else if (m.t === 'released') { csvFallback = null; hasCopy = false; $('detail').close(); $('work').hidden = true; showCache(); $('file').value = ''; setStatus('Dados liberados da memória.'); renderProfile(null); }
     else if (m.t === 'error') { $('bar').hidden = true; setStatus('Erro: ' + m.msg); }
   };
   worker.postMessage({ t: 'init' });

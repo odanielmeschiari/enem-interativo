@@ -346,11 +346,15 @@ async function loadProfile(file, ents) {
   for (const p of pplan) if (p && p.k !== 'mc') { pcols[p.name] = p.a.length === pn ? p.a : p.a.slice(0, pn); if (p.k === 'c') pcats[p.name] = p.keys; }
   pplan = [];
 }
-function profileInfo() { // per variable: question text and its options [index, code, label|null] in dictionary order
+function profileInfo() { // per variable: question text and its options [index, code, label|null, count] in dictionary order
   if (!pcols) return null;
   const vars = Object.keys(pcats).map((name) => {
+    const col = pcols[name];
     const d = plabels && plabels[name], lab = new Map(d ? d.opts : []), rank = new Map(d ? d.opts.map(([k], j) => [k, j]) : []);
-    const opts = pcats[name].map((key, i) => [i, key, lab.get(key) ?? null]).sort((a, b) => (rank.get(a[1]) ?? 1e6) - (rank.get(b[1]) ?? 1e6) || a[0] - b[0]);
+    // count occurrences of each category index (255 = missing/unknown, skip)
+    const cnt = new Uint32Array(32);
+    if (col) for (let i = 0; i < col.length; i++) { const v = col[i]; if (v < 32) cnt[v]++; }
+    const opts = pcats[name].map((key, i) => [i, key, lab.get(key) ?? null, cnt[i]]).sort((a, b) => (rank.get(a[1]) ?? 1e6) - (rank.get(b[1]) ?? 1e6) || a[0] - b[0]);
     return { name, desc: d ? d.desc : null, opts };
   });
   return { rows: pn, vars };

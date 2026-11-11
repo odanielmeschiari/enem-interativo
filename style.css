@@ -222,3 +222,17 @@ details > .weights { margin:16px 18px 18px; } /* needs the extra specificity: .w
 /* Selects share the sort menu's look: same size and weight as its trigger and list */
 select, option { font-size:17px; font-weight:400; }
 summary + .toggles { margin-top:16px; } #wbox[hidden] { display:none; } #wbox { display:grid; gap:10px; }
+
+/* Participant profile section */
+#profile-section h2 small { font-size:16px; font-weight:400; color:var(--mut); margin-left:10px; }
+.profile-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(320px,1fr)); gap:16px; margin-top:4px; }
+.pvar { background:var(--sunk); border:1px solid var(--line); border-radius:var(--r); padding:14px 16px; }
+.pvar-title { margin:0 0 10px; font-size:15px; color:var(--mut); font-weight:600; text-transform:uppercase; letter-spacing:.03em; }
+.pbar-row { display:grid; grid-template-columns:minmax(0,2fr) minmax(0,3fr) 90px; align-items:center; gap:6px; padding:3px 0; font-size:14px; font-family:var(--ui); }
+.pbar-name { color:var(--fg); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.pbar-wrap { height:12px; background:#424242; border-radius:6px; overflow:hidden; }
+.pbar-fill { display:block; height:100%; background:var(--sel); border-radius:6px; transition:width .3s; min-width:2px; }
+.pbar-val { text-align:right; color:var(--acc); font-weight:600; }
+.pbar-val small { display:block; color:var(--mut); font-size:11px; font-weight:400; }
+.pvar-more { font-size:13px; margin:6px 0 0; }
+@media (max-width:700px) { .profile-grid { grid-template-columns:1fr; } }
