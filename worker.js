@@ -126,15 +126,69 @@ function lines(b, end, base) { // b[0..end) holds only complete lines; base = fi
     p = next;
   }
 }
+// ZIP reader without libraries: central directory (ZIP64 too) + DecompressionStream; entries are streamed, never fully buffered.
+const u64 = (dv, o) => Number(dv.getBigUint64(o, true));
+async function zipEntries(file) {
+  const tail = new DataView(await file.slice(Math.max(0, file.size - 65557), file.size).arrayBuffer());
+  let e = tail.byteLength - 22;
+  while (e >= 0 && tail.getUint32(e, true) !== 0x06054b50) e--;
+  if (e < 0) throw new Error('ZIP inválido: fim do arquivo não encontrado.');
+  let count = tail.getUint16(e + 10, true), size = tail.getUint32(e + 12, true), off = tail.getUint32(e + 16, true);
+  if (count === 0xFFFF || off === 0xFFFFFFFF) { // ZIP64: the locator sits right before the end record
+    if (e < 20 || tail.getUint32(e - 20, true) !== 0x07064b50) throw new Error('ZIP64 inválido.');
+    const z = new DataView(await file.slice(u64(tail, e - 12), u64(tail, e - 12) + 56).arrayBuffer());
+    count = u64(z, 32); size = u64(z, 40); off = u64(z, 48);
+  }
+  const cd = new DataView(await file.slice(off, off + size).arrayBuffer()), out = [];
+  for (let p = 0, k = 0; k < count && cd.getUint32(p, true) === 0x02014b50; k++) {
+    const nl = cd.getUint16(p + 28, true), xl = cd.getUint16(p + 30, true), cl = cd.getUint16(p + 32, true);
+    const ent = { method: cd.getUint16(p + 10, true), csize: cd.getUint32(p + 20, true), usize: cd.getUint32(p + 24, true), lho: cd.getUint32(p + 42, true),
+      name: new TextDecoder().decode(new Uint8Array(cd.buffer, p + 46, nl)) };
+    for (let x = p + 46 + nl, xe = x + xl; x + 4 <= xe; x += 4 + cd.getUint16(x + 2, true)) if (cd.getUint16(x, true) === 1) { // ZIP64 sizes, in this order, only for the fields that overflowed
+      let y = x + 4;
+      if (ent.usize === 0xFFFFFFFF) { ent.usize = u64(cd, y); y += 8; }
+      if (ent.csize === 0xFFFFFFFF) { ent.csize = u64(cd, y); y += 8; }
+      if (ent.lho === 0xFFFFFFFF) ent.lho = u64(cd, y);
+    }
+    out.push(ent);
+    p += 46 + nl + xl + cl;
+  }
+  return out;
+}
+async function zipStream(file, ent) {
+  const h = new DataView(await file.slice(ent.lho, ent.lho + 30).arrayBuffer());
+  const start = ent.lho + 30 + h.getUint16(26, true) + h.getUint16(28, true), raw = file.slice(start, start + ent.csize).stream();
+  if (ent.method === 0) return raw;
+  if (ent.method !== 8) throw new Error('Método de compressão do ZIP não suportado.');
+  return raw.pipeThrough(new DecompressionStream('deflate-raw'));
+}
+// A deflate stream has no random access, so the decompressed results CSV is also written to a temporary OPFS file (disk, not memory):
+// candidate details read ONE row from it by byte offset, instantly. "Apagar dados" deletes it.
+const COPY = 'resultados.csv';
+let copy = false, sink = null;
+const copyFile = () => navigator.storage.getDirectory().then((d) => d.getFileHandle(COPY)).then((h) => h.getFile())
+  .catch(() => { throw new Error('Cópia local não encontrada: carregue o ZIP de novo.'); });
+async function copyOpen() {
+  try { const dir = await navigator.storage.getDirectory(); sink = await (await dir.getFileHandle(COPY, { create: true })).createSyncAccessHandle(); sink.truncate(0); }
+  catch { sink = null; }
+}
 async function load(file) {
-  ready = false; cols = null;
-  const t0 = performance.now(), reader = file.stream().getReader();
-  postMessage({ t: 'progress', read: 0, size: file.size, rows: 0 });
+  ready = false; cols = null; copy = false;
+  if (sink) { try { sink.close(); } catch {} sink = null; }
+  let stream = file.stream(), size = file.size;
+  if (/\.zip$/i.test(file.name)) {
+    const ent = (await zipEntries(file)).find((x) => /(^|\/)RESULTADOS[^/]*\.csv$/i.test(x.name));
+    if (!ent) throw new Error('Não encontrei RESULTADOS_*.csv dentro do ZIP.');
+    stream = await zipStream(file, ent); size = ent.usize; await copyOpen();
+  }
+  const t0 = performance.now(), reader = stream.getReader();
+  postMessage({ t: 'progress', read: 0, size, rows: 0 });
   let carry = new Uint8Array(0), read = 0, last = 0, header = false;
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
     read += value.length;
+    if (sink) try { sink.write(value, { at: read - value.length }); } catch { sink.close(); sink = null; } // no disk space: details fall back to the CSV picker
     let b = value;
     if (carry.length) { b = new Uint8Array(carry.length + value.length); b.set(carry); b.set(value, carry.length); }
     const base = read - b.length; // file offset of b[0]
@@ -148,8 +202,9 @@ async function load(file) {
     lines(start ? b.subarray(start) : b, end - start, base + start);
     carry = b.slice(end);
     const now = performance.now();
-    if (now - last > 100) { last = now; postMessage({ t: 'progress', read, size: file.size, rows: n }); }
+    if (now - last > 100) { last = now; postMessage({ t: 'progress', read, size, rows: n }); }
   }
+  if (sink) { sink.flush(); sink.close(); sink = null; copy = true; }
   if (carry.length) lines(carry, carry.length, read - carry.length);
   cols = {};
   for (const p of plan) if (p && p.a) cols[p.name] = p.a.slice(0, n);
@@ -163,7 +218,7 @@ async function load(file) {
   catch (err) { postMessage({ t: 'savefail', msg: String(err && err.message || err) }); }
 }
 function announce(ms, cached) {
-  postMessage({ t: 'loaded', rows: n, ufs: ufNames, munis: dicts[1].codes.map((c, i) => [c, dicts[1].names[i]]), ms, cached });
+  postMessage({ t: 'loaded', rows: n, ufs: ufNames, munis: dicts[1].codes.map((c, i) => [c, dicts[1].names[i]]), ms, cached, copy });
 }
 // Precompute exact default simple-average ranks once, then reuse them on every filter and page.
 function buildSimpleRanks() {
@@ -210,7 +265,7 @@ async function saveCache(file) {
   try {
     await tx(db, 'readwrite', (s) => s.clear());
     for (const k in cols) await tx(db, 'readwrite', (s) => s.put(cols[k], 'col:' + k));
-    const meta = { v: 5, rows: n, cols: Object.keys(cols), ufNames, dicts: dicts.map((d) => ({ names: d.names, codes: d.codes })),
+    const meta = { v: 6, copy, rows: n, cols: Object.keys(cols), ufNames, dicts: dicts.map((d) => ({ names: d.names, codes: d.codes })),
       file: { name: file.name, size: file.size }, header: headerText, savedAt: Date.now() };
     await tx(db, 'readwrite', (s) => s.put(meta, 'meta')); // written last: a partial save is never used
   } finally { db.close(); }
@@ -219,24 +274,23 @@ async function loadCache() {
   const t0 = performance.now(), db = await idb();
   try {
     const meta = await tx(db, 'readonly', (s) => s.get('meta'));
-    if (!meta || ![3, 4, 5].includes(meta.v)) throw new Error('Dados salvos incompatíveis; selecione o CSV novamente.');
+    if (!meta || meta.v !== 6) throw new Error('Dados salvos incompatíveis; selecione o ZIP novamente.');
     const c = {};
     for (const k of meta.cols) c[k] = await tx(db, 'readonly', (s) => s.get('col:' + k));
-    cols = c; n = meta.rows; ufNames = meta.ufNames; dicts = meta.dicts; headerText = meta.header || null; ready = true;
-    if (meta.v < 5) {
-      postMessage({ t: 'precompute', rows: n }); buildSimpleRanks();
-      try { postMessage({ t: 'saving' }); await saveCache(meta.file); postMessage({ t: 'saved' }); }
-      catch (err) { postMessage({ t: 'savefail', msg: String(err && err.message || err) }); }
-    }
+    cols = c; n = meta.rows; ufNames = meta.ufNames; dicts = meta.dicts; headerText = meta.header || null; copy = !!meta.copy; ready = true;
   } finally { db.close(); }
   announce(Math.round(performance.now() - t0), true);
 }
 async function cacheMeta() {
   const db = await idb();
-  try { const m = await tx(db, 'readonly', (s) => s.get('meta')); return m && [3, 4, 5].includes(m.v) ? { rows: m.rows, file: m.file, savedAt: m.savedAt } : null; }
+  try { const m = await tx(db, 'readonly', (s) => s.get('meta')); return m && m.v === 6 ? { rows: m.rows, file: m.file, savedAt: m.savedAt } : null; }
   finally { db.close(); }
 }
-async function clearCache() { const db = await idb(); try { await tx(db, 'readwrite', (s) => s.clear()); } finally { db.close(); } }
+async function clearCache() {
+  const db = await idb();
+  try { await tx(db, 'readwrite', (s) => s.clear()); } finally { db.close(); }
+  copy = false; try { await (await navigator.storage.getDirectory()).removeEntry(COPY); } catch {}
+}
 const SK = ['NU_NOTA_CN', 'NU_NOTA_CH', 'NU_NOTA_LC', 'NU_NOTA_MT', 'NU_NOTA_REDACAO']; // essay competencies are filter-only
 function summarize(k, sum, sq, cn, mn, mx, hist) { // median/quartiles come from a 1-point histogram, never from sorting
   const c = cn[k];
@@ -310,7 +364,7 @@ function row(i) {
 async function detail(q) { // reads ONE row of the CSV on demand (answer sheet, per-grader essay scores); the File is dropped right after
   try {
     if (!cols || !cols.ROW_OFFSET || !headerText) throw new Error('Para ver os detalhes, carregue o CSV de novo: os dados salvos não têm as posições das linhas.');
-    const off = cols.ROW_OFFSET[q.i], max = 32768, buf = new Uint8Array(await q.file.slice(off, off + max).arrayBuffer());
+    const off = cols.ROW_OFFSET[q.i], max = 32768, src = copy ? await copyFile() : q.file, buf = new Uint8Array(await src.slice(off, off + max).arrayBuffer());
     let e = buf.indexOf(10);
     if (e < 0 && buf.length === max) throw new Error('Linha do arquivo longa demais.');
     if (e < 0) e = buf.length;

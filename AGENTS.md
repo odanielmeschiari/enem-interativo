@@ -10,6 +10,7 @@ Offline, browser-based tool to filter the ENEM 2025 microdata (CSV, ~5M+ rows, 2
 - **No dependencies, no build step.** Vanilla HTML + CSS + JS (ES2020). No npm, no frameworks, no chart libraries.
 - **The dataset is never in the repo.** Add the data folder/CSV pattern to `.gitignore`. The user picks the file at startup (file picker, optional: remember the handle) and can change it later in settings.
 - **Target machine:** Linux laptop, 8 GB RAM, no GPU, Chromium-based browser. Total tool memory should stay under ~1 GB.
+- **Exception (approved):** when the user loads the official ZIP, the decompressed `RESULTADOS` CSV is kept as a temporary file in OPFS (disk, never memory) only so candidate details can read one row by byte offset instantly; "Apagar dados" deletes it. No other raw CSV is ever stored.
 - **Never keep the database open in the background.** Read the file once as a stream, close it, release the `File`/handle and every temporary buffer. Only compact in-memory columns remain. A "Release data" button must free them.
 - **Language:** code, comments, commit messages, docs in **English**. User-facing UI text in **Brazilian Portuguese**.
 

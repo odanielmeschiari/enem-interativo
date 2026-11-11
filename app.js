@@ -142,12 +142,12 @@ async function csvFile() { // remembered handle: the browser asks permission onc
   kv('readwrite', (s) => s.put(nh, 'handle')).catch(() => {});
   return nh.getFile();
 }
-let dseq = 0, dRow = null;
+let dseq = 0, dRow = null, hasCopy = false; // hasCopy: the worker keeps a decompressed copy of the results CSV on disk (OPFS), so no file picker is needed
 async function openDetail(r) {
   const id = ++dseq; dRow = r;
   $('dbody').innerHTML = card(r) + '<p class="mut">Lendo a linha do arquivo…</p>';
   if (!$('detail').open) $('detail').showModal();
-  try { const file = await csvFile(); worker.postMessage({ t: 'detail', id, i: r.i, file }); }
+  try { const file = hasCopy ? null : await csvFile(); worker.postMessage({ t: 'detail', id, i: r.i, file }); }
   catch (err) { if (id === dseq) $('dbody').innerHTML = card(r) + `<p class="mut">${err.name === 'AbortError' ? 'Seleção do arquivo cancelada.' : err.message}</p>`; }
 }
 function renderDetail(m) {
@@ -283,7 +283,7 @@ function initWorker() {
       $('status').textContent = `Lendo… ${Math.round(100 * m.read / m.size)}% • ${fmt(m.rows)} linhas • ${Math.round((performance.now() - t0) / 1000)} s`;
     } else if (m.t === 'loaded') {
       munis = m.munis.map(([c, n]) => ({ key: norm(n), label: `${n} (${UF_BY_IBGE[Math.floor(c / 100000)] || '?'})` }));
-      muniSel.clear(); ufSel.clear(); renderMunis();
+      muniSel.clear(); ufSel.clear(); renderMunis(); hasCopy = m.copy;
       $('bar').hidden = true; $('work').hidden = false; showCache();
       setStatus(`${fmt(m.rows)} linhas carregadas ${m.cached ? 'dos dados salvos' : ''} em ${(m.ms / 1000).toFixed(1)} s.`);
       run();
@@ -305,13 +305,13 @@ function initWorker() {
     else if (m.t === 'saved') { cacheInfo = { saved: true }; showCache(); $('status').textContent = base + ' Salvo para a próxima vez.'; }
     else if (m.t === 'savefail') $('status').textContent = base + ' (não foi possível salvar: ' + m.msg + ')';
     else if (m.t === 'cleared') { cacheInfo = null; showCache(); setStatus('Dados salvos apagados.'); }
-    else if (m.t === 'released') { csvFallback = null; $('detail').close(); $('work').hidden = true; showCache(); $('file').value = ''; setStatus('Dados liberados da memória.'); }
+    else if (m.t === 'released') { csvFallback = null; hasCopy = false; $('detail').close(); $('work').hidden = true; showCache(); $('file').value = ''; setStatus('Dados liberados da memória.'); }
     else if (m.t === 'error') { $('bar').hidden = true; setStatus('Erro: ' + m.msg); }
   };
   worker.postMessage({ t: 'init' });
 }
 function start(file) {
-  if (!window.showOpenFilePicker) csvFallback = file;
+  if (!window.showOpenFilePicker && /\.csv$/i.test(file.name)) csvFallback = file;
   busy('Lendo… 0%'); $('bar').value = 0;
   worker.postMessage({ t: 'load', file }); // the worker reads the stream once and drops the file
 }
