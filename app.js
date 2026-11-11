@@ -266,7 +266,7 @@ function query() {
 function run() { worker.postMessage({ t: 'filter', id: ++seq, ...query() }); }
 function schedule() { clearTimeout(timer); timer = setTimeout(run, 120); }
 
-let cacheInfo = null, base = '', lastProfile = null;
+let cacheInfo = null, base = '', lastProfile = null, lastProfileVars = [];
 const setStatus = (s) => { base = s; $('status').textContent = s; };
 const showCache = () => { $('delcache').hidden = !cacheInfo && $('work').hidden; }; // deleting is offered while data is loaded or saved
 const busy = (txt) => { t0 = performance.now(); $('work').hidden = true; $('bar').hidden = false; $('bar').removeAttribute('value'); setStatus(txt); };
@@ -281,39 +281,104 @@ const PROFILE_LABELS = {
   TP_ST_CONCLUSAO: 'Situação do ensino médio',
   TP_ANO_CONCLUIU: 'Ano de conclusão',
   TP_ENSINO: 'Tipo de ensino',
-  IN_TREINEIRO: 'Treineiro',
-  SG_UF_PROVA: 'Estado da prova (UF)',
+  IN_TREINEIRO: 'Candidato treineiro',
+  Q001: 'Escolaridade do pai',
+  Q002: 'Escolaridade da mãe',
+  Q003: 'Ocupação do pai',
+  Q004: 'Ocupação da mãe',
 };
-function profileVarLabel(name) {
-  if (PROFILE_LABELS[name]) return PROFILE_LABELS[name];
-  if (/^Q\d{3}$/.test(name)) return 'Questão soc. ' + name.slice(1).replace(/^0+/, '');
-  return name;
+
+function getProfileLabel(v) {
+  if (v.name === 'IN_TREINEIRO') return 'Candidato treineiro';
+  if (v.name === 'Q001') return 'Escolaridade do pai';
+  if (v.name === 'Q002') return 'Escolaridade da mãe';
+  if (v.name === 'Q003') return 'Ocupação do pai';
+  if (v.name === 'Q004') return 'Ocupação da mãe';
+  if (v.desc) {
+    const nd = norm(v.desc.trim());
+    if (nd.includes('treinar seus conhecimentos')) return 'Candidato treineiro';
+    if (nd.includes('serie seu pai') || (nd.includes('homem responsavel') && nd.includes('estudou'))) return 'Escolaridade do pai';
+    if (nd.includes('serie sua mae') || (nd.includes('mulher responsavel') && nd.includes('estudou'))) return 'Escolaridade da mãe';
+    if (nd.includes('ocupacao') && (nd.includes('seu pai') || nd.includes('homem responsavel'))) return 'Ocupação do pai';
+    if (nd.includes('ocupacao') && (nd.includes('sua mae') || nd.includes('mulher responsavel'))) return 'Ocupação da mãe';
+    return v.desc.trim();
+  }
+  if (PROFILE_LABELS[v.name]) return PROFILE_LABELS[v.name];
+  if (/^Q\d{3}$/.test(v.name)) return 'Questão soc. ' + v.name.slice(1).replace(/^0+/, '');
+  return v.name;
 }
+
+function shouldSkipProfileVar(v) {
+  if (v.name === 'SG_UF_PROVA') return true;
+  if (v.desc) {
+    const nd = norm(v.desc);
+    if (nd.includes('sigla da unidade da federacao') || nd.includes('uf da aplicacao da prova')) return true;
+  }
+  return false;
+}
+
+function openProfileDetail(k) {
+  const v = lastProfileVars[k];
+  if (!v || !lastProfile) return;
+  const label = getProfileLabel(v);
+  const total = lastProfile.rows;
+  const sorted = [...v.opts].sort((a, b) => b[3] - a[3]);
+  const topCount = sorted[0]?.[3] || 1;
+  const totalAnswered = sorted.reduce((sum, opt) => sum + (opt[3] || 0), 0);
+
+  const rows = sorted.map(([, code, lbl, count]) => {
+    const display = (lbl && lbl.trim()) ? lbl : code;
+    const pct = total ? count / total : 0;
+    const barW = Math.round(100 * count / topCount);
+    return `<div class="pbar-row"><span class="pbar-name" title="${display}">${display}${lbl && code ? ` <small class="mut">(${code})</small>` : ''}</span>` +
+      `<span class="pbar-wrap"><i class="pbar-fill" style="width:${barW}%"></i></span>` +
+      `<span class="pbar-val">${fmt(count)}<small>${(100 * pct).toFixed(1)}%</small></span></div>`;
+  }).join('');
+
+  const descHtml = v.desc && v.desc.trim() !== label ? `<p class="mut" style="font-size:16px;margin:4px 0 12px">${v.desc}</p>` : '';
+  const metaHtml = `<div class="tags" style="justify-content:flex-start;margin-bottom:14px">` +
+    `<i>${fmt(totalAnswered)} respostas</i>` +
+    `<i>${v.opts.length} categorias</i>` +
+    `<i>${fmt(total)} participantes no total</i>` +
+    `</div>`;
+
+  $('pdbody').innerHTML = `<h3>${label}</h3>${descHtml}${metaHtml}<div class="pdetail-list">${rows}</div>`;
+  if (!$('pdetail').open) $('pdetail').showModal();
+}
+
 function renderProfile(profile) {
   lastProfile = profile;
   const sec = $('profile-section');
-  if (!profile || !profile.vars || !profile.vars.length) { sec.hidden = true; return; }
+  if (!profile || !profile.vars || !profile.vars.length) {
+    lastProfileVars = [];
+    sec.hidden = true;
+    return;
+  }
+  lastProfileVars = profile.vars.filter((v) => !shouldSkipProfileVar(v) && v.opts && v.opts.length);
+  if (!lastProfileVars.length) { sec.hidden = true; return; }
   sec.hidden = false;
   $('profile-count').textContent = `${fmt(profile.rows)} participantes`;
-  $('profile-grid').innerHTML = profile.vars.map((v) => {
-    const label = (v.desc && v.desc.trim()) ? v.desc : profileVarLabel(v.name);
-    if (!v.opts.length) return '';
-    // opts: [idx, code, labelOrNull, count]; sort by count descending for display
+  $('profile-grid').innerHTML = lastProfileVars.map((v, k) => {
+    const label = getProfileLabel(v);
     const sorted = [...v.opts].sort((a, b) => b[3] - a[3]);
-    const topCount = sorted[0][3] || 1;
-    const MAX_SHOW = 10;
-    const rows = sorted.slice(0, MAX_SHOW).map(([, code, lbl, count]) => {
+    const topCount = sorted[0]?.[3] || 1;
+    const lead = sorted[0];
+    const leadDisplay = (lead[2] && lead[2].trim()) ? lead[2] : lead[1];
+    const leadPct = profile.rows ? lead[3] / profile.rows : 0;
+    const previewBars = sorted.slice(0, 2).map(([, code, lbl, count]) => {
       const display = (lbl && lbl.trim()) ? lbl : code;
-      const pct = count / profile.rows;
+      const pct = profile.rows ? count / profile.rows : 0;
       const barW = Math.round(100 * count / topCount);
-      return `<div class="pbar-row"><span class="pbar-name" title="${display}">${display}</span>` +
+      return `<div class="pbar-row mini"><span class="pbar-name" title="${display}">${display}</span>` +
         `<span class="pbar-wrap"><i class="pbar-fill" style="width:${barW}%"></i></span>` +
-        `<span class="pbar-val">${fmt(count)}<small>${(100 * pct).toFixed(1)}%</small></span></div>`;
+        `<span class="pbar-val">${(100 * pct).toFixed(1)}%</span></div>`;
     }).join('');
-    const more = sorted.length > MAX_SHOW
-      ? `<p class="mut pvar-more">+${sorted.length - MAX_SHOW} categoria${sorted.length - MAX_SHOW > 1 ? 's' : ''} omitida${sorted.length - MAX_SHOW > 1 ? 's' : ''}</p>`
-      : '';
-    return `<div class="pvar"><h4 class="pvar-title">${label}</h4>${rows}${more}</div>`;
+    return `<div class="cand pcard" data-k="${k}">` +
+      `<div class="head"><b>${label}</b><span>${v.opts.length} opções</span></div>` +
+      `<div class="pcard-dominant"><small>Mais frequente</small><div class="pcard-lead"><span class="pcard-lead-name" title="${leadDisplay}">${leadDisplay}</span><b>${(100 * leadPct).toFixed(1)}%</b></div></div>` +
+      `<div class="pcard-bars">${previewBars}</div>` +
+      `<div class="pcard-foot"><small>Ver todas as opções (${v.opts.length}) →</small></div>` +
+      `</div>`;
   }).join('');
 }
 
@@ -426,6 +491,13 @@ $('cards').addEventListener('click', (e) => { const c = e.target.closest('.cand'
 $('dclose').onclick = () => $('detail').close();
 $('detail').addEventListener('click', (e) => { if (e.target === $('detail')) $('detail').close(); }); // click on the backdrop
 $('detail').addEventListener('close', () => { dseq++; $('dbody').innerHTML = ''; });
+$('profile-grid').addEventListener('click', (e) => {
+  const c = e.target.closest('.pcard');
+  if (c && lastProfileVars) openProfileDetail(+c.dataset.k);
+});
+$('pdclose').onclick = () => $('pdetail').close();
+$('pdetail').addEventListener('click', (e) => { if (e.target === $('pdetail')) $('pdetail').close(); });
+$('pdetail').addEventListener('close', () => { $('pdbody').innerHTML = ''; });
 $('delcache').onclick = () => { worker.postMessage({ t: 'release' }); worker.postMessage({ t: 'clearcache' }); }; // frees the memory and deletes the saved copy
 initWorker();
 $('f').addEventListener('input', (e) => { if (e.target.id !== 'mq') { countActive(); schedule(); } });

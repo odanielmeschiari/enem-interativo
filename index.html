@@ -96,10 +96,6 @@
       <h2>Estatísticas do resultado <select id="statop"></select></h2>
       <div id="statgrid" class="statgrid"></div>
     </section>
-    <section class="card" id="profile-section" hidden>
-      <h2>Perfil dos participantes <small id="profile-count"></small></h2>
-      <div id="profile-grid" class="profile-grid"></div>
-    </section>
     <section class="card">
       <h2>Acertos × notas TRI <select id="hitarea"></select></h2>
       <div id="hittable" class="hit-tables"></div>
@@ -109,9 +105,14 @@
       <div id="cards" class="cards"></div>
       <div class="pager"><button id="prev">← Anterior</button><span id="pageinfo"></span><button id="next">Próximos →</button></div>
     </section>
+    <section class="card" id="profile-section" hidden>
+      <h2>Perfil dos participantes <small id="profile-count"></small></h2>
+      <div id="profile-grid" class="profile-grid"></div>
+    </section>
   </div>
 </main>
 <dialog id="detail"><button id="dclose" type="button">Fechar ✕</button><div id="dbody"></div></dialog>
+<dialog id="pdetail"><button id="pdclose" type="button">Fechar ✕</button><div id="pdbody"></div></dialog>
 <script src="app.js"></script>
 </body>
 </html>
