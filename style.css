@@ -66,6 +66,11 @@ h2 select { float:right; }
 .cards { display:grid; grid-template-columns:repeat(auto-fill, minmax(370px,1fr)); gap:24px; }
 .cand { padding:16px; background:var(--tile); border-radius:var(--r); transition:transform .15s; }
 .cand .head { display:flex; justify-content:space-between; align-items:baseline; gap:8px; } .cand .head span { color:var(--mut); font-size:15px; text-align:right; }
+.tri-analysis-content { display:grid; gap:16px; margin-top:16px; }
+.tri-table { width:100%; border-collapse:collapse; margin-top:12px; font-size:16px; }
+.tri-table th, .tri-table td { padding:8px 12px; border:1px solid var(--line); text-align:left; }
+.tri-table th { background:var(--sunk); color:var(--mut); }
+
 .tags { display:flex; flex-wrap:wrap; justify-content:center; gap:4px; margin:8px 0; min-height:22px; } .tags i { font-style:normal; font-size:15px; padding:2px 8px; background:#a8d9aa; color:#16311a; border-radius:4px; }
 .tags i.warn { background:#ffb9b9; color:#4a1015; }
 .pager { display:flex; align-items:center; justify-content:center; gap:16px; margin-top:14px; color:var(--mut); } .pager button:disabled { opacity:.4; cursor:default; }

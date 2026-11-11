@@ -436,6 +436,7 @@ function initWorker() {
       $('bar').hidden = true; $('work').hidden = false; showCache();
       setStatus(`${fmt(m.rows)} linhas carregadas ${m.cached ? 'dos dados salvos' : ''} em ${(m.ms / 1000).toFixed(1)} s.${m.profile ? ` Perfil: ${fmt(m.profile.rows)} participantes.` : ''}${m.notes.length ? ' ' + m.notes.join(' ') : ''}`);
       renderProfile(m.profile || null);
+      triItems = m.items || null; renderTriAnalysis();
       run();
     } else if (m.t === 'result') {
       if (m.id !== seq) return;
@@ -455,7 +456,7 @@ function initWorker() {
     else if (m.t === 'saved') { cacheInfo = { saved: true }; showCache(); $('status').textContent = base + ' Salvo para a próxima vez.'; }
     else if (m.t === 'savefail') $('status').textContent = base + ' (não foi possível salvar: ' + m.msg + ')';
     else if (m.t === 'cleared') { cacheInfo = null; showCache(); setStatus('Dados salvos apagados.'); }
-    else if (m.t === 'released') { csvFallback = null; hasCopy = false; $('detail').close(); $('work').hidden = true; showCache(); $('file').value = ''; setStatus('Dados liberados da memória.'); renderProfile(null); schools = []; schoolRows = []; $('srank').innerHTML = ''; }
+    else if (m.t === 'released') { csvFallback = null; hasCopy = false; $('detail').close(); $('work').hidden = true; showCache(); $('file').value = ''; setStatus('Dados liberados da memória.'); renderProfile(null); triItems = null; renderTriAnalysis(); schools = []; schoolRows = []; $('srank').innerHTML = ''; }
     else if (m.t === 'error') { $('bar').hidden = true; setStatus('Erro: ' + m.msg); }
   };
   worker.postMessage({ t: 'init' });
@@ -550,6 +551,32 @@ $('pdetail').addEventListener('click', (e) => { if (e.target === $('pdetail')) $
 $('pdetail').addEventListener('close', () => { $('pdbody').innerHTML = ''; });
 $('delcache').onclick = () => { worker.postMessage({ t: 'release' }); worker.postMessage({ t: 'clearcache' }); }; // frees the memory and deletes the saved copy
 initWorker();
+let triItems = null;
+$('tri-area-select').addEventListener('change', () => renderTriAnalysis());
+function renderTriAnalysis() {
+  const box = $('tri-analysis-content');
+  if (!triItems) {
+    box.innerHTML = '<p class="mut">Os parâmetros das questões vêm do ITENS_PROVA.csv dentro do ZIP oficial do ENEM.</p>';
+    return;
+  }
+  const area = $('tri-area-select').value, list = triItems[area] || [];
+  if (!list.length) { box.innerHTML = '<p class="mut">Nenhum item desta área nos dados carregados.</p>'; return; }
+  box.innerHTML = `
+    <p class="mut"><b>${fmt(list.length)}</b> questões nesta área, ordenadas pela posição na prova.</p>
+    <div style="overflow-x:auto">
+      <table class="tri-table">
+        <thead><tr><th>Posição</th><th>Item</th><th>Gabarito</th><th>Dificuldade (b)</th><th>Discriminação (a)</th><th>Acerto ao acaso (c)</th><th>Acertos</th></tr></thead>
+        <tbody>${list.map((it) => `<tr>
+          <td>${it.pos}</td><td>${it.id}</td><td><b>${it.gab || '—'}</b></td>
+          <td>${it.b === undefined ? '—' : f1(it.b)}</td>
+          <td>${it.a === undefined ? '—' : f1(it.a)}</td>
+          <td>${it.c === undefined ? '—' : f1(it.c)}</td>
+          <td>${it.pct === undefined ? '—' : f1(100 * it.pct) + '%'}</td>
+        </tr>`).join('')}</tbody>
+      </table>
+    </div>`;
+}
+
 $('f').addEventListener('input', (e) => { if (e.target.id !== 'mq') { countActive(); schedule(); } });
 $('mq').addEventListener('input', suggest);
 $('mq').addEventListener('keydown', (e) => { if (e.key === 'Enter') { const b = $('sug').querySelector('button'); if (b) addMuni(+b.dataset.i); } });

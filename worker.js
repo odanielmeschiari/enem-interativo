@@ -13,11 +13,15 @@ const WANT = {
   NU_NOTA_REDACAO: [3],
   TX_RESPOSTAS_CN: [8, 0], TX_RESPOSTAS_CH: [8, 1], TX_RESPOSTAS_LC: [8, 2], TX_RESPOSTAS_MT: [8, 3],
   TX_GABARITO_CN: [9, 0], TX_GABARITO_CH: [9, 1], TX_GABARITO_LC: [9, 2], TX_GABARITO_MT: [9, 3],
+  CO_PROVA_CN: [10, 0], CO_PROVA_CH: [10, 1], CO_PROVA_LC: [10, 2], CO_PROVA_MT: [10, 3], // load-only: only to attribute hits to each item
 };
 const TYPES = [null, Int32Array, Uint8Array, Float32Array, Uint8Array, null, Uint16Array, null, Uint8Array, null];
 const HIT_KEYS = ['ACERTOS_CN', 'ACERTOS_CH', 'ACERTOS_LC', 'ACERTOS_MT'];
 const TOTAL_HITS = 'ACERTOS_TOTAL';
 const responseSpans = new Int32Array(16).fill(-1);
+const examCode = new Int32Array(4).fill(-1); // CO_PROVA_* of the current row (load only)
+const ITEM_SLOTS = 64, PROVA_SLOTS = 16384; // 4-digit CO_PROVA; 64 slots cover positions 1..50
+let itemHits = null, examN = null; // hits per (exam, position) and valid answers per exam, freed after the load
 const dec = new TextDecoder('utf-8', { fatal: true }), lat = new TextDecoder('windows-1252');
 
 let cols = null, n = 0, cap = 0, plan = [], maxF = 0, ready = false;
@@ -53,7 +57,7 @@ function setup(headerLine) {
   names.forEach((raw, i) => {
     const w = WANT[raw.trim().replace(/"/g, '')];
     if (!w) return;
-    plan[i] = { name: raw.trim().replace(/"/g, ''), k: w[0], g: w[1], a: [5, 8, 9].includes(w[0]) ? null : new TYPES[w[0]](cap) };
+    plan[i] = { name: raw.trim().replace(/"/g, ''), k: w[0], g: w[1], a: [5, 8, 9, 10].includes(w[0]) ? null : new TYPES[w[0]](cap) };
     maxF = i;
   });
   hitPlan = HIT_KEYS.map((name) => ({ name, k: 2, a: new Uint8Array(cap), hit: true }));
@@ -63,7 +67,7 @@ function setup(headerLine) {
 function addRow(b, p, le, abs) { // abs = byte offset of the row in the file
   if (n === cap) grow();
   offs[n] = abs;
-  let s = p; rowLang = 255; responseSpans.fill(-1);
+  let s = p; rowLang = 255; responseSpans.fill(-1); examCode.fill(-1);
   for (let f = 0; f <= maxF; f++) {
     let e = b.indexOf(59, s);
     if (e < 0 || e > le) e = le;
@@ -84,6 +88,7 @@ function addRow(b, p, le, abs) { // abs = byte offset of the row in the file
         }
         case 5: cur[pl.g] = num(b, s, e); break;
         case 8: case 9: break;
+        case 10: examCode[pl.g] = num(b, s, e); break;
         case 6: {
           const d = dicts[pl.g], code = cur[pl.g];
           if (code !== code) { pl.a[n] = 65535; break; }
@@ -100,17 +105,19 @@ function addRow(b, p, le, abs) { // abs = byte offset of the row in the file
     const rs = responseSpans[a * 2], re = responseSpans[a * 2 + 1], ks = responseSpans[8 + a * 2], ke = responseSpans[9 + a * 2];
     let hits = 0, valid = rs >= 0 && ks >= 0 && re > rs && ke > ks;
     const rn = re - rs, kn = ke - ks;
+    const cp = examCode[a], base = cp >= 0 && cp < PROVA_SLOTS ? cp * ITEM_SLOTS : -1, cnt = base >= 0 ? itemHits[a] : null;
     if (valid && a === 2 && rn === 45 && kn === 50) {
       if (rowLang > 1) valid = false;
       else for (let j = 0; j < 45; j++) {
         const keyPos = j < 5 ? j + rowLang * 5 : j + 5;
         const answer = b[rs + j], key = b[ks + keyPos];
-        if (answer >= 65 && answer <= 69 && answer === key) hits++;
+        if (answer >= 65 && answer <= 69 && answer === key) { hits++; if (cnt) cnt[base + j]++; }
       }
     } else if (valid) {
       const lim = Math.min(rn, kn);
-      for (let j = 0; j < lim; j++) { const answer = b[rs + j], key = b[ks + j]; if (answer >= 65 && answer <= 69 && answer === key) hits++; }
+      for (let j = 0; j < lim; j++) { const answer = b[rs + j], key = b[ks + j]; if (answer >= 65 && answer <= 69 && answer === key) { hits++; if (cnt) cnt[base + j]++; } }
     }
+    if (valid && cnt) examN[a][cp]++;
     hitPlan[a].a[n] = valid ? hits : 255;
   }
   n++;
@@ -396,8 +403,49 @@ async function streamCsv(stream, size, what, h) {
   }
   if (carry.length) h.lines(carry, carry.length, read - carry.length);
 }
+// ITENS_PROVA: one row per item per exam colour, so the same question repeats. Keep it once per area,
+// summing the hits of every (exam, position) where the item appeared.
+let items = null; // { CN: [{ pos, id, gab, a, b, c, hits, answered, pct }], CH, LC, MT }
+async function loadItems(file, ents) {
+  const ent = ents.find((x) => /(^|\/)ITENS_PROVA[^/]*\.csv$/i.test(x.name));
+  if (!ent) throw new Error('não encontrei ITENS_PROVA_*.csv');
+  const txt = await new Response(await zipStream(file, ent)).text();
+  const rows = txt.split(/\r?\n/);
+  const head = rows[0].split(';').map((s) => s.trim().replace(/^\uFEFF/, ''));
+  const col = (name) => head.indexOf(name);
+  const pPos = col('CO_POSICAO'), pArea = col('SG_AREA'), pItem = col('CO_ITEM'), pGab = col('TX_GABARITO');
+  const pA = col('NU_PARAM_A'), pB = col('NU_PARAM_B'), pC = col('NU_PARAM_C'), pProv = col('CO_PROVA');
+  if (pPos < 0 || pArea < 0 || pItem < 0) throw new Error('cabeçalho de ITENS_PROVA inválido');
+  const AREA_IX = { CN: 0, CH: 1, LC: 2, MT: 3 };
+  const byArea = { CN: new Map(), CH: new Map(), LC: new Map(), MT: new Map() };
+  const numOr = (v) => (v === undefined || v === '' ? undefined : +v);
+  for (let i = 1; i < rows.length; i++) {
+    if (!rows[i]) continue;
+    const f = rows[i].split(';'), area = f[pArea], id = +f[pItem];
+    const m = byArea[area];
+    if (!m) continue;
+    let it = m.get(id);
+    if (!it) { it = { pos: +f[pPos], id, gab: pGab >= 0 ? f[pGab] : '', a: numOr(f[pA]), b: numOr(f[pB]), c: numOr(f[pC]), spans: new Set() }; m.set(id, it); }
+    const cp = pProv >= 0 ? +f[pProv] : NaN, pos = +f[pPos];
+    if (cp >= 0 && cp < PROVA_SLOTS && pos > 0 && pos <= ITEM_SLOTS) it.spans.add(cp * ITEM_SLOTS + pos - 1); // same item may repeat across colours
+  }
+  const out = {};
+  for (const area in byArea) {
+    const g = AREA_IX[area], hits = itemHits[g], answers = examN[g], list = [];
+    for (const it of byArea[area].values()) {
+      let h = 0, a = 0;
+      for (const k of it.spans) { h += hits[k]; a += answers[(k / ITEM_SLOTS) | 0]; }
+      list.push({ pos: it.pos, id: it.id, gab: it.gab, a: it.a, b: it.b, c: it.c, hits: h, answered: a, pct: a ? h / a : undefined });
+    }
+    list.sort((x, y) => x.pos - y.pos || x.id - y.id);
+    if (list.length) out[area] = list;
+  }
+  return out;
+}
 async function load(file) {
-  ready = false; cols = null; copy = false;
+  ready = false; cols = null; copy = false; items = null;
+  itemHits = [0, 1, 2, 3].map(() => new Uint32Array(PROVA_SLOTS * ITEM_SLOTS));
+  examN = [0, 1, 2, 3].map(() => new Uint32Array(PROVA_SLOTS));
   if (sink) { try { sink.close(); } catch {} sink = null; }
   pcols = null; pcats = {}; pdicts = null; plabels = null; notes = [];
   let stream = file.stream(), size = file.size, ents = null;
@@ -418,9 +466,11 @@ async function load(file) {
   plan = []; // free the grown buffers: only the trimmed columns remain
   if (ents) { // the official ZIP also carries the participant profile and the data dictionary; a failure here never blocks the results
     try { await loadProfile(file, ents); } catch (err) { pcols = null; notes.push(String(err.message || err)); }
+    try { items = await loadItems(file, ents); } catch (err) { items = null; notes.push('Sem parâmetros dos itens: ' + String(err.message || err) + '.'); }
     const dic = ents.find((x) => /\.xlsx$/i.test(x.name));
     try { if (!dic) throw new Error('não encontrei o dicionário .xlsx'); plabels = await readDictionary(file, dic); } catch (err) { plabels = null; notes.push('Sem rótulos das categorias: ' + String(err.message || err) + '.'); }
   }
+  itemHits = null; examN = null; // per-item counters are only needed while streaming
   postMessage({ t: 'precompute', rows: n });
   buildSimpleRanks();
   buildSchoolIndex();
@@ -432,7 +482,7 @@ async function load(file) {
 function announce(ms, cached) {
   postMessage({ t: 'loaded', rows: n, ufs: ufNames, munis: dicts[1].codes.map((c, i) => [c, dicts[1].names[i]]),
     schools: schoolDict ? schoolDict.codes.map((c, i) => [c, schoolDict.munis[i], schoolDict.ufs[i], schoolDict.deps[i]]) : [],
-    ms, cached, copy, profile: profileInfo(), notes });
+    ms, cached, copy, profile: profileInfo(), items, notes });
 }
 let schoolDict = null;
 function buildSchoolIndex() {
@@ -524,7 +574,7 @@ async function saveCache(file) {
     const meta = { v: CACHE_V, copy, rows: n, cols: Object.keys(cols), ufNames, dicts: dicts.map((d) => ({ names: d.names, codes: d.codes })),
       schoolDict: schoolDict ? { codes: schoolDict.codes, munis: schoolDict.munis, ufs: schoolDict.ufs, deps: schoolDict.deps } : null,
       file: { name: file.name, size: file.size }, header: headerText, savedAt: Date.now(),
-      profile: pcols ? { rows: pn, cols: Object.keys(pcols), cats: pcats, dict: { names: pdicts.names, codes: pdicts.codes }, labels: plabels } : null, notes };
+      profile: pcols ? { rows: pn, cols: Object.keys(pcols), cats: pcats, dict: { names: pdicts.names, codes: pdicts.codes }, labels: plabels } : null, notes, items };
     await tx(db, 'readwrite', (s) => s.put(meta, 'meta')); // written last: a partial save is never used
   } finally { db.close(); }
 }
@@ -535,7 +585,7 @@ async function loadCache() {
     if (!meta || meta.v !== CACHE_V) throw new Error('Dados salvos incompatíveis; selecione o ZIP novamente.');
     const c = {};
     for (const k of meta.cols) c[k] = await tx(db, 'readonly', (s) => s.get('col:' + k));
-    const pr = meta.profile; pcols = null; pcats = {}; pdicts = null; plabels = null; notes = meta.notes || [];
+    const pr = meta.profile; pcols = null; pcats = {}; pdicts = null; plabels = null; notes = meta.notes || []; items = meta.items || null;
     if (pr) { pcols = {}; for (const k of pr.cols) pcols[k] = await tx(db, 'readonly', (s) => s.get('pcol:' + k)); pn = pr.rows; pcats = pr.cats; pdicts = pr.dict; plabels = pr.labels; }
     cols = c; n = meta.rows; ufNames = meta.ufNames; dicts = meta.dicts; headerText = meta.header || null; copy = !!meta.copy;
     schoolDict = meta.schoolDict || null;
@@ -743,7 +793,7 @@ self.onmessage = async ({ data }) => {
     else if (data.t === 'init') { let meta = null; try { meta = await cacheMeta(); } catch {} postMessage({ t: meta ? 'cache' : 'nocache', meta }); }
     else if (data.t === 'usecache') { resetOrders(); await loadCache(); }
     else if (data.t === 'clearcache') { await clearCache(); postMessage({ t: 'cleared' }); }
-    else if (data.t === 'release') { resetOrders(); cols = null; pcols = null; pdicts = null; plabels = null; schoolDict = null; matchIdx = null; offs = null; headerText = null; n = 0; ready = false; postMessage({ t: 'released' }); }
+    else if (data.t === 'release') { resetOrders(); cols = null; pcols = null; pdicts = null; plabels = null; schoolDict = null; items = null; matchIdx = null; offs = null; headerText = null; n = 0; ready = false; postMessage({ t: 'released' }); }
   } catch (err) { postMessage({ t: 'error', msg: String(err.message || err) }); }
   if (ready) warmOrders(); // idle time goes to pre-building every sort order
 };
