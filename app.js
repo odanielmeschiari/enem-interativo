@@ -108,11 +108,11 @@ function card(r, k) {
   const totalHits = r.hits.every((v) => v !== null) ? r.hits.reduce((a, b) => a + b, 0) : null;
   const tile = ([i, l]) => `<div class="tile">${r.n[i] === null ? '<div class="dot off">–</div>' : `<div class="dot" style="--h:${hue(r.n[i])}">${f1(r.n[i])}</div>`}<small>${l}</small></div>`;
   const rank = r.ranks ? `<div class="ranks"><span>ENEM <b>${fmt(r.ranks.all)}º</b></span><span>Estado <b>${fmt(r.ranks.state)}º</b></span><span>Cidade <b>${fmt(r.ranks.city)}º</b></span><span>Escola <b>${r.ranks.school ? fmt(r.ranks.school) + 'º' : '—'}</b></span></div>` : '';
-  const hits = r.hits.map((v, i) => `<span>${['Natureza', 'Humanas', 'Linguagens', 'Matemática'][i]} <b>${v === null ? '—' : v + '/45'}</b></span>`).join('');
+  const hits = [1, 2, 0, 3].map((i) => `<span>${['Natureza', 'Humanas', 'Linguagens', 'Matemática'][i]} <b>${r.hits[i] === null ? '—' : r.hits[i] + '/45'}</b></span>`).join(''); // Humanas, Linguagens / Natureza, Matemática
   return `<div class="cand"${k === undefined ? '' : ` data-k="${k}"`}><div class="head"><b>Candidato ${r.id}</b><span>${r.muni || '—'} · ${r.uf || '—'}</span></div>` +
     `<div class="tags">${tags.filter(Boolean).map((t) => `<i>${t}</i>`).join('')}${warn.map((t) => `<i class="warn">${t}</i>`).join('')}</div>` +
     `<div class="avgs"><div><small>Média simples</small><b>${num(avg)}</b></div><div><small>Média ponderada</small><b>${num(wavg)}</b></div><div class="hit-total"><small>Acertos totais</small><b>${totalHits === null ? '—' : fmt(totalHits)}</b><em>${totalHits === null ? 'incompleto' : 'de 180'}</em></div></div>` +
-    `<div class="tiles">${TILES.map(tile).join('')}</div><div class="hits"><small>Acertos por área (sobre 45 questões)</small>${hits}</div>${rank}</div>`;
+    `<div class="tiles">${TILES.map(tile).join('')}</div><div class="hits">${hits}</div>${rank}</div>`;
 }
 // Candidate detail: the answer sheet and the per-grader essay scores are not kept in memory; one CSV row is read on click.
 const kv = (mode, fn) => new Promise((res, rej) => {
