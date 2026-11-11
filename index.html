@@ -14,13 +14,11 @@
     <label class="upload"><input type="file" id="file" accept=".csv"><i></i><span>Escolher o arquivo CSV</span></label>
     <progress id="bar" value="0" max="1" hidden></progress>
     <p id="status">Nenhum arquivo carregado.</p>
-    <button id="usecache" hidden>Carregar dados salvos</button>
-    <button id="release" hidden>Liberar dados da memória</button>
-    <button id="delcache" hidden>Apagar dados salvos</button>
+    <button id="delcache" class="wipe" hidden><i></i>Apagar dados</button>
   </section>
   <div id="work" hidden>
     <section class="card">
-      <h2>Filtros <button id="clear">Limpar tudo</button></h2>
+      <h2>Filtros <button id="clear" class="icon" title="Limpar todos os filtros" aria-label="Limpar todos os filtros"><i></i></button></h2>
       <form id="f" onsubmit="return false">
         <div class="toggles"><label><input type="checkbox" id="nofalta">Ocultar candidatos com faltas</label></div>
         <details>

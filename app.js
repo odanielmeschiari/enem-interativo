@@ -262,7 +262,7 @@ function schedule() { clearTimeout(timer); timer = setTimeout(run, 120); }
 
 let cacheInfo = null, base = '';
 const setStatus = (s) => { base = s; $('status').textContent = s; };
-const showCache = () => { $('usecache').hidden = $('delcache').hidden = !cacheInfo; };
+const showCache = () => { $('delcache').hidden = !cacheInfo && $('work').hidden; }; // deleting is offered while data is loaded or saved
 const busy = (txt) => { t0 = performance.now(); $('work').hidden = true; $('bar').hidden = false; $('bar').removeAttribute('value'); setStatus(txt); };
 
 function initWorker() {
@@ -278,7 +278,7 @@ function initWorker() {
     } else if (m.t === 'loaded') {
       munis = m.munis.map(([c, n]) => ({ key: norm(n), label: `${n} (${UF_BY_IBGE[Math.floor(c / 100000)] || '?'})` }));
       muniSel.clear(); ufSel.clear(); renderMunis();
-      $('bar').hidden = true; $('work').hidden = false; $('release').hidden = false;
+      $('bar').hidden = true; $('work').hidden = false; showCache();
       setStatus(`${fmt(m.rows)} linhas carregadas ${m.cached ? 'dos dados salvos' : ''} em ${(m.ms / 1000).toFixed(1)} s.`);
       run();
     } else if (m.t === 'result') {
@@ -299,7 +299,7 @@ function initWorker() {
     else if (m.t === 'saved') { cacheInfo = { saved: true }; showCache(); $('status').textContent = base + ' Salvo para a próxima vez.'; }
     else if (m.t === 'savefail') $('status').textContent = base + ' (não foi possível salvar: ' + m.msg + ')';
     else if (m.t === 'cleared') { cacheInfo = null; showCache(); setStatus('Dados salvos apagados.'); }
-    else if (m.t === 'released') { csvFallback = null; $('detail').close(); $('work').hidden = true; $('release').hidden = true; $('file').value = ''; setStatus('Dados liberados da memória.'); }
+    else if (m.t === 'released') { csvFallback = null; $('detail').close(); $('work').hidden = true; showCache(); $('file').value = ''; setStatus('Dados liberados da memória.'); }
     else if (m.t === 'error') { $('bar').hidden = true; setStatus('Erro: ' + m.msg); }
   };
   worker.postMessage({ t: 'init' });
@@ -332,13 +332,11 @@ $('mprev').onclick = () => { muniPage--; renderMuniRank(); };
 $('mnext').onclick = () => { muniPage++; renderMuniRank(); };
 $('mrank').addEventListener('click', (e) => { const li = e.target.closest('li'); if (!li) return; const g = +li.dataset.m; muniSel.has(g) ? muniSel.delete(g) : muniSel.set(g, munis[g].label); renderMunis(); schedule(); });
 $('file').onchange = (e) => e.target.files[0] && start(e.target.files[0]);
-$('release').onclick = () => worker.postMessage({ t: 'release' });
 $('cards').addEventListener('click', (e) => { const c = e.target.closest('.cand'); if (c) openDetail(pageRows[+c.dataset.k]); });
 $('dclose').onclick = () => $('detail').close();
 $('detail').addEventListener('click', (e) => { if (e.target === $('detail')) $('detail').close(); }); // click on the backdrop
 $('detail').addEventListener('close', () => { dseq++; $('dbody').innerHTML = ''; });
-$('usecache').onclick = () => { busy('Carregando dados salvos…'); worker.postMessage({ t: 'usecache' }); };
-$('delcache').onclick = () => worker.postMessage({ t: 'clearcache' });
+$('delcache').onclick = () => { worker.postMessage({ t: 'release' }); worker.postMessage({ t: 'clearcache' }); }; // frees the memory and deletes the saved copy
 initWorker();
 $('f').addEventListener('input', (e) => { if (e.target.id !== 'mq') { countActive(); schedule(); } });
 $('mq').addEventListener('input', suggest);
