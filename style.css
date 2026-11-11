@@ -199,3 +199,5 @@ dialog { width:min(1100px, 96vw); max-height:92vh; overflow:auto; background:var
 .icon i { width:24px; height:24px; } .icon:hover { border-color:#ff9a9a; color:#ff9a9a; }
 .wipe { display:flex; align-items:center; justify-content:center; gap:10px; width:100%; height:44px; border:0; background:#ffb9b9; color:#4a1015; font-weight:600; }
 .wipe:hover { background:#ffcfcf; } .wipe i { width:22px; height:22px; }
+
+[data-f] { cursor:pointer; } [data-f]:hover { background:#ffffff26; }

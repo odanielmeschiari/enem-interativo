@@ -212,7 +212,7 @@ function renderHitScore(h = hitScore) {
   const rows = h[+$('hitarea').value].map((r, a) => r && [a, ...r]).filter(Boolean); // [hits, n, min, mean, max]
   if (!rows.length) { $('hittable').innerHTML = '<p class="mut">Nenhum candidato com acertos e nota nesta área.</p>'; return; }
   const half = Math.ceil(rows.length / 2), tbl = (rs) => `<table><thead><tr><th>Freq.</th><th>Acertos</th><th>Mínima</th><th>Média</th><th>Máxima</th></tr></thead><tbody>` +
-    rs.map((r) => `<tr${r[0] % 5 === 0 ? ' class="hl"' : ''}><td>${fmt(r[1])}</td><th>${r[0]}</th><td>${f1z(r[2])}</td><td>${f1z(r[3])}</td><td>${f1z(r[4])}</td></tr>`).join('') + '</tbody></table>';
+    rs.map((r) => `<tr${r[0] % 5 === 0 ? ' class="hl"' : ''}><td>${fmt(r[1])}</td><th data-f="hits" data-v="${r[0]}">${r[0]}</th><td data-f="score" data-v="${r[2]}">${f1z(r[2])}</td><td>${f1z(r[3])}</td><td data-f="score" data-v="${r[4]}">${f1z(r[4])}</td></tr>`).join('') + '</tbody></table>';
   $('hittable').innerHTML = tbl(rows.slice(0, half)) + (rows.length > 1 ? tbl(rows.slice(half)) : '');
 }
 
@@ -226,7 +226,7 @@ function buildFilters() {
 }
 function countActive() { // how many filters are set in each collapsed section
   for (const d of document.querySelectorAll('#f details')) {
-    const n = [...d.querySelectorAll('input:not(#mq)')].filter((x) => x.type === 'checkbox' ? x.checked : x.value !== '').length + (d.contains($('mchips')) ? muniSel.size : 0);
+    const n = d.querySelectorAll('input:checked').length + [...d.querySelectorAll('.scores div')].filter((r) => [...r.querySelectorAll('input')].some((x) => x.value !== '')).length + [...d.querySelectorAll(':scope > input')].filter((x) => x.value !== '').length + (d.contains($('mchips')) ? muniSel.size : 0); // a min/max pair counts once
     d.querySelector('.n').textContent = n || '';
   }
 }
@@ -321,6 +321,12 @@ $('statop').innerHTML = OPS.map(([v, l]) => `<option value="${v}">Destaque: ${l}
 $('statop').onchange = () => renderStats(lastStats);
 $('hitarea').innerHTML = AREAS.slice(0, 4).map(([, l], k) => `<option value="${k}">${l}</option>`).join(''); $('hitarea').value = 3;
 $('hitarea').onchange = () => renderHitScore();
+$('hittable').addEventListener('click', (e) => { // a clicked hit count, minimum or maximum becomes a filter on the selected area
+  const c = e.target.closest('[data-f]'); if (!c) return;
+  const k = +$('hitarea').value, v = +c.dataset.v, hits = c.dataset.f === 'hits';
+  const id = hits ? HIT_FILTERS[k][0] : AREAS[k][0], lo = hits ? v : Math.max(0, +(v - 0.05).toFixed(2)), hi = hits ? v : +(v + 0.05).toFixed(2); // scores are stored as float32 with one decimal: match the rounded value
+  $(id + '_lo').value = lo; $(id + '_hi').value = hi; countActive(); schedule();
+});
 $('sort').onchange = () => { pageOff = 0; requestPage(); };
 $('rankmetric').onchange = () => { pageOff = 0; requestPage(); };
 $('prev').onclick = () => { pageOff = Math.max(0, pageOff - PAGE); requestPage(); };
