@@ -20,7 +20,8 @@ const HIT_KEYS = ['ACERTOS_CN', 'ACERTOS_CH', 'ACERTOS_LC', 'ACERTOS_MT'];
 const TOTAL_HITS = 'ACERTOS_TOTAL';
 const responseSpans = new Int32Array(16).fill(-1);
 const examCode = new Int32Array(4).fill(-1); // CO_PROVA_* of the current row (load only)
-const ITEM_SLOTS = 64, PROVA_SLOTS = 16384; // 4-digit CO_PROVA; 64 slots cover positions 1..50
+const ITEM_SLOTS = 64, PROVA_SLOTS = 16384, LANG_SLOTS = 3; // 4-digit CO_PROVA; 64 slots cover positions 1..50
+const AREA_SLOTS = [PROVA_SLOTS, PROVA_SLOTS, PROVA_SLOTS * LANG_SLOTS, PROVA_SLOTS]; // LC is keyed by (exam, language) too
 let itemHits = null, examN = null; // hits per (exam, position) and valid answers per exam, freed after the load
 const dec = new TextDecoder('utf-8', { fatal: true }), lat = new TextDecoder('windows-1252');
 
@@ -105,7 +106,9 @@ function addRow(b, p, le, abs) { // abs = byte offset of the row in the file
     const rs = responseSpans[a * 2], re = responseSpans[a * 2 + 1], ks = responseSpans[8 + a * 2], ke = responseSpans[9 + a * 2];
     let hits = 0, valid = rs >= 0 && ks >= 0 && re > rs && ke > ks;
     const rn = re - rs, kn = ke - ks;
-    const cp = examCode[a], base = cp >= 0 && cp < PROVA_SLOTS ? cp * ITEM_SLOTS : -1, cnt = base >= 0 ? itemHits[a] : null;
+    const cp = examCode[a];
+    const ex = cp >= 0 && cp < PROVA_SLOTS ? (a === 2 ? cp * LANG_SLOTS + (rowLang < 2 ? rowLang : 2) : cp) : -1; // LC: English and Spanish are different items at the same position
+    const base = ex >= 0 ? ex * ITEM_SLOTS : -1, cnt = base >= 0 ? itemHits[a] : null;
     if (valid && a === 2 && rn === 45 && kn === 50) {
       if (rowLang > 1) valid = false;
       else for (let j = 0; j < 45; j++) {
@@ -117,7 +120,7 @@ function addRow(b, p, le, abs) { // abs = byte offset of the row in the file
       const lim = Math.min(rn, kn);
       for (let j = 0; j < lim; j++) { const answer = b[rs + j], key = b[ks + j]; if (answer >= 65 && answer <= 69 && answer === key) { hits++; if (cnt) cnt[base + j]++; } }
     }
-    if (valid && cnt) examN[a][cp]++;
+    if (valid && cnt) examN[a][ex]++;
     hitPlan[a].a[n] = valid ? hits : 255;
   }
   n++;
@@ -408,13 +411,13 @@ async function streamCsv(stream, size, what, h) {
 let items = null; // { CN: [{ pos, id, gab, a, b, c, hits, answered, pct }], CH, LC, MT }
 async function loadItems(file, ents) {
   const ent = ents.find((x) => /(^|\/)ITENS_PROVA[^/]*\.csv$/i.test(x.name));
-  if (!ent) throw new Error('não encontrei ITENS_PROVA_*.csv');
+  if (!ent) return null; // a ZIP without the item file is not an error: only the item analysis stays empty
   const txt = await new Response(await zipStream(file, ent)).text();
   const rows = txt.split(/\r?\n/);
   const head = rows[0].split(';').map((s) => s.trim().replace(/^\uFEFF/, ''));
   const col = (name) => head.indexOf(name);
   const pPos = col('CO_POSICAO'), pArea = col('SG_AREA'), pItem = col('CO_ITEM'), pGab = col('TX_GABARITO');
-  const pA = col('NU_PARAM_A'), pB = col('NU_PARAM_B'), pC = col('NU_PARAM_C'), pProv = col('CO_PROVA');
+  const pA = col('NU_PARAM_A'), pB = col('NU_PARAM_B'), pC = col('NU_PARAM_C'), pProv = col('CO_PROVA'), pLang = col('TP_LINGUA');
   if (pPos < 0 || pArea < 0 || pItem < 0) throw new Error('cabeçalho de ITENS_PROVA inválido');
   const AREA_IX = { CN: 0, CH: 1, LC: 2, MT: 3 };
   const byArea = { CN: new Map(), CH: new Map(), LC: new Map(), MT: new Map() };
@@ -427,7 +430,12 @@ async function loadItems(file, ents) {
     let it = m.get(id);
     if (!it) { it = { pos: +f[pPos], id, gab: pGab >= 0 ? f[pGab] : '', a: numOr(f[pA]), b: numOr(f[pB]), c: numOr(f[pC]), spans: new Set() }; m.set(id, it); }
     const cp = pProv >= 0 ? +f[pProv] : NaN, pos = +f[pPos];
-    if (cp >= 0 && cp < PROVA_SLOTS && pos > 0 && pos <= ITEM_SLOTS) it.spans.add(cp * ITEM_SLOTS + pos - 1); // same item may repeat across colours
+    if (cp >= 0 && cp < PROVA_SLOTS && pos > 0 && pos <= ITEM_SLOTS) { // same item may repeat across colours
+      const off = pos - 1, lang = pLang >= 0 && f[pLang] !== '' ? +f[pLang] : -1;
+      if (area !== 'LC') it.spans.add(cp * ITEM_SLOTS + off);
+      else if (lang === 0 || lang === 1) it.spans.add((cp * LANG_SLOTS + lang) * ITEM_SLOTS + off); // English/Spanish item
+      else for (let L = 0; L < LANG_SLOTS; L++) it.spans.add((cp * LANG_SLOTS + L) * ITEM_SLOTS + off); // common item: both languages
+    }
   }
   const out = {};
   for (const area in byArea) {
@@ -444,8 +452,8 @@ async function loadItems(file, ents) {
 }
 async function load(file) {
   ready = false; cols = null; copy = false; items = null;
-  itemHits = [0, 1, 2, 3].map(() => new Uint32Array(PROVA_SLOTS * ITEM_SLOTS));
-  examN = [0, 1, 2, 3].map(() => new Uint32Array(PROVA_SLOTS));
+  itemHits = AREA_SLOTS.map((s) => new Uint32Array(s * ITEM_SLOTS));
+  examN = AREA_SLOTS.map((s) => new Uint32Array(s));
   if (sink) { try { sink.close(); } catch {} sink = null; }
   pcols = null; pcats = {}; pdicts = null; plabels = null; notes = [];
   let stream = file.stream(), size = file.size, ents = null;
@@ -555,7 +563,7 @@ function buildSimpleRanks() {
   cols.RANK_AVG_ALL = all; cols.RANK_AVG_STATE = stateRank; cols.RANK_AVG_CITY = cityRank; cols.RANK_AVG_SCHOOL = schoolRank;
 }
 // Cache: only the compact columns (~300 MB) go to IndexedDB, never the raw CSV.
-const CACHE_V = 7;
+const CACHE_V = 8;
 const idb = () => new Promise((res, rej) => {
   const r = indexedDB.open('enem-cache', 1);
   r.onupgradeneeded = () => r.result.createObjectStore('kv');

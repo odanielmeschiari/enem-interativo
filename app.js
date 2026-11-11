@@ -553,6 +553,21 @@ $('delcache').onclick = () => { worker.postMessage({ t: 'release' }); worker.pos
 initWorker();
 let triItems = null;
 $('tri-area-select').addEventListener('change', () => renderTriAnalysis());
+$('tri-sort').addEventListener('change', () => renderTriAnalysis());
+const TRI_SORTS = {
+  pos: (x, y) => x.pos - y.pos,
+  'pct-desc': (x, y) => (y.pct ?? -1) - (x.pct ?? -1),
+  'pct-asc': (x, y) => (x.pct ?? 2) - (y.pct ?? 2),
+  'b-asc': (x, y) => (x.b ?? 1e9) - (y.b ?? 1e9),
+  'b-desc': (x, y) => (y.b ?? -1e9) - (x.b ?? -1e9),
+  'a-desc': (x, y) => (y.a ?? -1e9) - (x.a ?? -1e9),
+};
+function triHighlight(list, pick, fmtv) { // one extreme item of the area, as a small stat tile
+  let best = null;
+  for (const it of list) if (pick(it) !== undefined && (best === null || pick(it) > pick(best))) best = it;
+  if (!best) return '';
+  return `<div class="stat"><h4>${fmtv.label}</h4><p class="mean">${fmtv.value(best)}</p><p>Item ${best.id} • posição ${best.pos} • gabarito ${best.gab || '—'}</p></div>`;
+}
 function renderTriAnalysis() {
   const box = $('tri-analysis-content');
   if (!triItems) {
@@ -561,12 +576,20 @@ function renderTriAnalysis() {
   }
   const area = $('tri-area-select').value, list = triItems[area] || [];
   if (!list.length) { box.innerHTML = '<p class="mut">Nenhum item desta área nos dados carregados.</p>'; return; }
+  const byPct = (it) => it.pct, byDisc = (it) => it.a;
+  const tiles = [
+    triHighlight(list, byPct, { label: 'Mais acertada', value: (it) => `${f1(100 * it.pct)}%` }),
+    triHighlight(list, (it) => (it.pct === undefined ? undefined : -it.pct), { label: 'Menos acertada', value: (it) => `${f1(100 * it.pct)}%` }),
+    triHighlight(list, byDisc, { label: 'Mais discriminativa', value: (it) => `a = ${f1(it.a)}` }),
+  ].join('');
+  const rows = [...list].sort(TRI_SORTS[$('tri-sort').value] || TRI_SORTS.pos);
   box.innerHTML = `
-    <p class="mut"><b>${fmt(list.length)}</b> questões nesta área, ordenadas pela posição na prova.</p>
+    <div class="statgrid">${tiles}</div>
+    <p class="mut"><b>${fmt(list.length)}</b> questões nesta área.</p>
     <div style="overflow-x:auto">
       <table class="tri-table">
         <thead><tr><th>Posição</th><th>Item</th><th>Gabarito</th><th>Dificuldade (b)</th><th>Discriminação (a)</th><th>Acerto ao acaso (c)</th><th>Acertos</th></tr></thead>
-        <tbody>${list.map((it) => `<tr>
+        <tbody>${rows.map((it) => `<tr>
           <td>${it.pos}</td><td>${it.id}</td><td><b>${it.gab || '—'}</b></td>
           <td>${it.b === undefined ? '—' : f1(it.b)}</td>
           <td>${it.a === undefined ? '—' : f1(it.a)}</td>

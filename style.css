@@ -66,6 +66,7 @@ h2 select { float:right; }
 .cards { display:grid; grid-template-columns:repeat(auto-fill, minmax(370px,1fr)); gap:24px; }
 .cand { padding:16px; background:var(--tile); border-radius:var(--r); transition:transform .15s; }
 .cand .head { display:flex; justify-content:space-between; align-items:baseline; gap:8px; } .cand .head span { color:var(--mut); font-size:15px; text-align:right; }
+.tri-controls { display:flex; flex-wrap:wrap; gap:12px; align-items:center; }
 .tri-analysis-content { display:grid; gap:16px; margin-top:16px; }
 .tri-table { width:100%; border-collapse:collapse; margin-top:12px; font-size:16px; }
 .tri-table th, .tri-table td { padding:8px 12px; border:1px solid var(--line); text-align:left; }
