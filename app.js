@@ -251,6 +251,10 @@ function query() {
     if (lo > 0 || hi < max) ranges[k] = [lo, hi];
   }
   for (const k of ['NU_SEQUENCIAL', 'CO_ESCOLA']) if ($(k).value !== '') ranges[k] = [+$(k).value, +$(k).value];
+  if ($('sch_in').checked !== $('sch_out').checked) { // both or none = everyone; no school is stored as CO_ESCOLA = 0
+    const [lo, hi] = ranges.CO_ESCOLA || [0, 2147483647], linked = $('sch_in').checked;
+    ranges.CO_ESCOLA = linked ? [Math.max(lo, 1), hi] : [lo, Math.min(hi, 0)];
+  }
   for (const g of GROUPS) {
     const v = [...document.querySelectorAll(`#g_${g.id} input:checked`)].map((x) => +x.value);
     if (v.length) for (const k of g.keys) cats[k] = v;
