@@ -33,6 +33,25 @@ function zip(entries, z64) { // deflated ZIP builder; z64 = every size and offse
     l.writeUInt32LE(0x07064b50, 0); l.writeBigUInt64LE(BigInt(off + cdb.length), 8); l.writeUInt32LE(1, 16); tail.push(r, l); }
   return Buffer.concat([...parts, cdb, ...tail, eo]);
 }
+const PART = Buffer.from('NU_INSCRICAO;NU_ANO;TP_FAIXA_ETARIA;TP_SEXO;TP_ESTADO_CIVIL;TP_COR_RACA;TP_NACIONALIDADE;TP_ST_CONCLUSAO;TP_ANO_CONCLUIU;TP_ENSINO;IN_TREINEIRO;CO_MUNICIPIO_PROVA;NO_MUNICIPIO_PROVA;CO_UF_PROVA;SG_UF_PROVA;' + Array.from({ length: 23 }, (_, i) => 'Q' + String(i + 1).padStart(3, '0')).join(';') + '\n' + [
+  '210062064233;2024;5;F;1;1;1;1;3;;0;4314902;Porto Alegre;43;RS;F;F;C;D;4;B;C;A;C;D;C;B;B;A;B;B;B;D;A;B;B;E;A',
+  '210062064234;2024;11;F;1;1;1;1;10;;0;4318903;São Luiz Gonzaga;43;RS;B;C;A;D;2;B;E;A;B;B;B;B;B;A;A;A;A;B;A;B;A;C;A',
+  '210062064235;2024;11;F;1;1;1;1;9;;0;4314902;Porto Alegre;43;RS;H;F;F;D;5;B;J;A;C;D;B;B;C;A;B;B;B;D;B;B;A;D;A',
+  '210062064236;2024;3;F;1;3;1;2;0;1;0;3550308;São Paulo;35;SP;B;B;B;B;6;A;C;A;B;C;B;A;B;A;B;A;A;A;A;B;A;D;A',
+  '210062064267;2024;1;M;1;1;1;3;0;;1;3550308;São Paulo;35;SP;G;F;E;D;3;A;D;A;B;C;B;A;B;A;B;B;A;B;B;B;B;D;D',
+  '210062064381;2024;11;F;0;0;1;1;9;;0;4314902;Porto Alegre;43;RS;D;B;B;F;3;A;A;A;B;B;A;A;B;A;B;A;A;B;A;B;A;D;A'].join('\n') + '\n');
+const DICT = (() => { // minimal .xlsx: shared strings, numeric codes, a footnote mark, an XML entity, a self-closing cell, a section title, and a second sheet that must be ignored
+  const S = ['TP_FAIXA_ETARIA', 'Faixa etária', 'Menor de 17 anos', '17 anos', 'TP_SEXO', 'Sexo2', 'M', 'Masculino', 'F', 'Feminino', 'Q007', 'Renda &amp; família', 'A', 'Nenhuma Renda', 'C', 'De R$ 1.412,01 até R$ 2.118,00.', 'DADOS DO PARTICIPANTE', '1. Referente ao Enem 2024', 'ERRADO'];
+  const c = (r, v, t) => `<c r="${r}"${t === 's' ? ' t="s"' : ''}><v>${v}</v></c>`, str = (r, i) => c(r, i, 's');
+  const sheet1 = '<worksheet><sheetData>' + [
+    `<row r="5">${str('A5', 16)}<c r="B5" s="1"/></row>`, `<row r="6">${str('A6', 0)}${str('B6', 1)}${c('C6', 1)}${str('D6', 2)}</row>`, `<row r="7">${c('C7', 2)}${str('D7', 3)}</row>`,
+    `<row r="8">${str('A8', 4)}${str('B8', 5)}${str('C8', 6)}${str('D8', 7)}</row>`, `<row r="9">${str('C9', 8)}${str('D9', 9)}</row>`,
+    `<row r="10">${str('A10', 10)}${str('B10', 11)}${str('C10', 12)}${str('D10', 13)}</row>`, `<row r="11">${str('C11', 14)}${str('D11', 15)}</row>`, `<row r="12">${str('A12', 17)}${str('C12', 12)}${str('D12', 18)}</row>`].join('') + '</sheetData></worksheet>';
+  const sheet2 = `<worksheet><sheetData><row r="6">${str('A6', 10)}${str('C6', 12)}${str('D6', 18)}</row></sheetData></worksheet>`;
+  return zip([['[Content_Types].xml', Buffer.from('<Types/>')], ['xl/workbook.xml', Buffer.from('<workbook><sheets><sheet name="RESULTADOS_2024" sheetId="2" r:id="rId2"/><sheet name="PARTICIPANTES_2024" sheetId="1" r:id="rId1"/></sheets></workbook>')],
+    ['xl/_rels/workbook.xml.rels', Buffer.from('<Relationships><Relationship Id="rId1" Type="x" Target="/xl/worksheets/sheet1.xml"/><Relationship Id="rId2" Type="x" Target="worksheets/sheet2.xml"/></Relationships>')],
+    ['xl/sharedStrings.xml', Buffer.from('<sst>' + S.map((x) => `<si><t>${x}</t></si>`).join('') + '</sst>')], ['xl/worksheets/sheet1.xml', Buffer.from(sheet1)], ['xl/worksheets/sheet2.xml', Buffer.from(sheet2)]], false);
+})();
 const waiters = [];
 global.self = {}; global.postMessage = (m) => { if (m.t === 'error') console.log(m); for (const w of waiters.filter((x) => x.t === m.t)) { waiters.splice(waiters.indexOf(w), 1); w.res(m); } };
 require('../worker.js');
@@ -42,7 +61,8 @@ const send = (d, t) => { const p = wait(t); self.onmessage({ data: d }); return 
   const f = process.argv[2] || path.join(__dirname, '../sample/sample.csv');
   const file = new File([fs.readFileSync(f)], 'x.csv');
   const saved = wait('saved');
-  console.log(await send({ t: 'load', file }, 'loaded')); await saved;
+  const csvLoad = await send({ t: 'load', file }, 'loaded'); await saved; console.log(csvLoad);
+  assert.strictEqual(csvLoad.profile, null, 'a plain CSV has no profile');
   const q = async (x) => { const r = await send({ t: 'filter', ...x }, 'result'); console.log(JSON.stringify(x), '->', r.count, '/', r.total, r.ms + 'ms', r.perUf.join(',')); return r; };
   const allStats = await q({});
   const cards = await send({ t: 'page', offset: 0, limit: 6, rankKey: 'avg' }, 'page');
@@ -109,17 +129,32 @@ const send = (d, t) => { const p = wait(t); self.onmessage({ data: d }); return 
   await q({ ranges: { NU_NOTA_REDACAO: [800, 1000] } }); await q({ muni: [0] });
   const csv = fs.readFileSync(f);
   for (const z64 of [false, true]) { // the official ZIP, then ZIP64: the CSV is streamed out of the archive; details come from the temporary OPFS copy, no file needed
-    const zf = new File([zip([['DADOS/PARTICIPANTES_2024.csv', Buffer.from('NU_INSCRICAO;Q001\n1;A\n')], ['DADOS/RESULTADOS_2024.csv', csv]], z64)], 'enem.zip');
+    const zf = new File([zip([['DADOS/PARTICIPANTES_2024.csv', PART], ['DICION\u00c1RIO/Dicion\u00e1rio_Microdados_Enem_2024.xlsx', DICT], ['DADOS/RESULTADOS_2024.csv', csv]], z64)], 'enem.zip');
     const savedZip = wait('saved');
     const lz = await send({ t: 'load', file: zf }, 'loaded'); await savedZip;
     assert(lz.copy && lz.rows === allStats.total, 'zip rows');
     assert(opfsFiles.get('resultados.csv').equals(csv), 'OPFS copy equals the CSV');
     assert.deepStrictEqual(await q({}).then((r) => r.stats), allStats.stats);
+    assert.deepStrictEqual(lz.notes, []); assert.strictEqual(lz.profile.rows, 6);
+    const v = (name) => lz.profile.vars.find((x) => x.name === name), col = (name) => [...store.get('pcol:' + name)];
+    assert.deepStrictEqual(v('TP_SEXO').opts.map(([, k, l]) => k + ':' + l), ['M:Masculino', 'F:Feminino'], 'dictionary order, footnote mark removed');
+    assert.strictEqual(v('TP_SEXO').desc, 'Sexo'); assert.strictEqual(v('Q007').desc, 'Renda & família');
+    const lab = (name) => v(name).opts.map(([, k, l]) => k + ':' + l); // listed codes first, in dictionary order; unlisted ones after, as first seen, unlabeled
+    assert.deepStrictEqual(lab('Q007'), ['A:Nenhuma Renda', 'C:De R$ 1.412,01 até R$ 2.118,00.', 'E:null', 'J:null', 'D:null']);
+    assert.deepStrictEqual(lab('TP_FAIXA_ETARIA'), ['1:Menor de 17 anos', '5:null', '11:null', '3:null']);
+    assert.deepStrictEqual(col('TP_SEXO'), [0, 0, 0, 0, 1, 0]); assert.deepStrictEqual(col('TP_ENSINO'), [255, 255, 255, 0, 255, 255], 'empty = 255');
+    assert.deepStrictEqual(col('TP_FAIXA_ETARIA'), [0, 1, 1, 2, 3, 1]); assert.deepStrictEqual(col('SG_UF_PROVA'), [0, 0, 0, 1, 1, 0]);
+    assert.deepStrictEqual(col('NO_MUNICIPIO_PROVA'), [0, 1, 0, 2, 2, 0]);
     await checkDetail((await send({ t: 'page', offset: 0, limit: 6, rankKey: 'avg' }, 'page')).rows, null);
     await send({ t: 'release' }, 'released'); await send({ t: 'init' }, 'cache');
-    assert((await send({ t: 'usecache' }, 'loaded')).copy);
+    const lc = await send({ t: 'usecache' }, 'loaded'); assert(lc.copy); assert.deepStrictEqual(lc.profile, lz.profile, 'the profile survives the cache');
     await q({}); await checkDetail((await send({ t: 'page', offset: 0, limit: 6, rankKey: 'avg' }, 'page')).rows, null); // after the cache too
     console.log('zip ok', z64 ? '(ZIP64)' : '');
   }
+  const noPart = new File([zip([['DADOS/RESULTADOS_2024.csv', csv]], false)], 'enem.zip'); // a ZIP without profile or dictionary still loads the results
+  const lp = await send({ t: 'load', file: noPart }, 'loaded'); assert.strictEqual(lp.profile, null); assert(lp.notes.length === 2, lp.notes.join('|')); assert.strictEqual(lp.rows, allStats.total);
+  const noDict = await send({ t: 'load', file: new File([zip([['DADOS/PARTICIPANTES_2024.csv', PART], ['DADOS/RESULTADOS_2024.csv', csv]], false)], 'enem.zip') }, 'loaded');
+  assert.strictEqual(noDict.profile.rows, 6); assert(noDict.notes.length === 1 && noDict.profile.vars.every((x) => x.desc === null && x.opts.every((o) => o[2] === null)), 'no dictionary: codes stay unlabeled');
+  console.log('profile ok');
   await send({ t: 'clearcache' }, 'cleared'); assert(!opfsFiles.has('resultados.csv'), 'copy deleted'); console.log('after clear:', (await send({ t: 'init' }, 'nocache')).t);
 })();

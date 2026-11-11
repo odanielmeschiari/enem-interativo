@@ -115,14 +115,14 @@ function addRow(b, p, le, abs) { // abs = byte offset of the row in the file
   }
   n++;
 }
-function lines(b, end, base) { // b[0..end) holds only complete lines; base = file offset of b[0]
+function lines(b, end, base, add = addRow) { // b[0..end) holds only complete lines; base = file offset of b[0]
   let p = 0;
   while (p < end) {
     const nl = b.indexOf(10, p);
     let le = nl < 0 || nl > end ? end : nl;
     const next = le + 1;
     if (le > p && b[le - 1] === 13) le--;
-    if (le > p) addRow(b, p, le, base + p);
+    if (le > p) add(b, p, le, base + p);
     p = next;
   }
 }
@@ -162,6 +162,97 @@ async function zipStream(file, ent) {
   if (ent.method !== 8) throw new Error('Método de compressão do ZIP não suportado.');
   return raw.pipeThrough(new DecompressionStream('deflate-raw'));
 }
+// Participant profile (PARTICIPANTES): one small Uint8Array per categorical column. It does NOT join with RESULTADOS (the dictionary says
+// NU_SEQUENCIAL is only a row number), so it is a separate dataset. Codes ("A", "5", "RS") are learned from the data: a column stores the
+// index of its code in pcats[name], 255 = empty. At most 31 codes per column, so a 32-bit mask can hold a selection.
+const PROFILE = ['TP_FAIXA_ETARIA', 'TP_SEXO', 'TP_ESTADO_CIVIL', 'TP_COR_RACA', 'TP_NACIONALIDADE', 'TP_ST_CONCLUSAO', 'TP_ANO_CONCLUIU', 'TP_ENSINO', 'IN_TREINEIRO', 'SG_UF_PROVA',
+  ...Array.from({ length: 25 }, (_, i) => 'Q' + String(i + 1).padStart(3, '0'))];
+let pcols = null, pn = 0, pcats = {}, pdicts = null, plabels = null, notes = []; // notes: non-fatal problems found while loading, shown to the user
+let pplan = [], pcap = 0, pmax = 0, pcur = NaN;
+function pSetup(line, cap) {
+  const names = text(line, 0, line.length).replace(/^\uFEFF/, '').split(';');
+  pcap = cap; pn = 0; pplan = []; pmax = 0; pcats = {}; pdicts = { map: new Map(), names: [], codes: [] };
+  names.forEach((raw, i) => {
+    const name = raw.trim().replace(/"/g, ''), k = name === 'CO_MUNICIPIO_PROVA' ? 'mc' : name === 'NO_MUNICIPIO_PROVA' ? 'mn' : PROFILE.includes(name) ? 'c' : null;
+    if (!k) return;
+    pplan[i] = { name, k, a: k === 'mc' ? null : new (k === 'mn' ? Uint16Array : Uint8Array)(cap), lut: new Uint8Array(256), map: new Map(), keys: [] };
+    pmax = i;
+  });
+  if (!pplan.some((p) => p && p.k === 'c')) throw new Error('Cabeçalho de PARTICIPANTES inválido: nenhuma coluna conhecida');
+}
+function catIndex(pl, b, s, e) {
+  while (s < e && (b[s] === 34 || b[s] === 32)) s++;
+  while (e > s && (b[e - 1] === 34 || b[e - 1] === 32)) e--;
+  const len = e - s;
+  if (len === 0 || len > 4) return 255;
+  let key = 0;
+  if (len === 1) { const v = pl.lut[b[s]]; if (v) return v - 1; }
+  else { for (let i = s; i < e; i++) key = key * 256 + b[i]; const v = pl.map.get(key); if (v !== undefined) return v; }
+  if (pl.keys.length >= 31) return 255;
+  const i = pl.keys.length; pl.keys.push(String.fromCharCode(...b.subarray(s, e)));
+  if (len === 1) pl.lut[b[s]] = i + 1; else pl.map.set(key, i);
+  return i;
+}
+function pRow(b, p, le) {
+  if (pn === pcap) { pcap *= 2; for (const x of pplan) if (x && x.a) { const t = new x.a.constructor(pcap); t.set(x.a); x.a = t; } }
+  let s = p;
+  for (let f = 0; f <= pmax; f++) {
+    let e = s; while (e < le && b[e] !== 59) e++;
+    const pl = pplan[f];
+    if (pl) {
+      if (pl.k === 'c') pl.a[pn] = catIndex(pl, b, s, e);
+      else if (pl.k === 'mc') pcur = num(b, s, e);
+      else if (pcur !== pcur) pl.a[pn] = 65535;
+      else { let i = pdicts.map.get(pcur); if (i === undefined) { i = pdicts.names.length; pdicts.map.set(pcur, i); pdicts.names.push(text(b, s, e)); pdicts.codes.push(pcur); } pl.a[pn] = i; }
+    }
+    if (e >= le) { for (let g = f + 1; g <= pmax; g++) if (pplan[g] && pplan[g].k === 'c') pplan[g].a[pn] = 255; break; } // short row: the rest is empty
+    s = e + 1;
+  }
+  pn++;
+}
+// The XML parts of an .xlsx are read with regular expressions: the dictionary is small and regular, and workers have no DOMParser.
+const xml = (t) => t.replace(/<[^>]*>/g, '').replace(/&(#x?[0-9a-f]+|amp|lt|gt|quot|apos);/gi, (m, c) => c[0] === '#' ? String.fromCodePoint(c[1] === 'x' || c[1] === 'X' ? parseInt(c.slice(2), 16) : +c.slice(1)) : { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" }[c.toLowerCase()]);
+async function zipText(blob, ents, name) { const e = ents.find((x) => x.name === name); return e ? new Response(await zipStream(blob, e)).text() : ''; }
+async function readDictionary(file, ent) { // -> { VARIABLE: { desc, opts: [[code, label], ...] } } from the PARTICIPANTES sheet
+  const xl = new Blob([await new Response(await zipStream(file, ent)).arrayBuffer()]), ents = await zipEntries(xl);
+  const shared = [...(await zipText(xl, ents, 'xl/sharedStrings.xml')).matchAll(/<si\b[^>]*?(?:\/>|>([\s\S]*?)<\/si>)/g)].map((m) => xml(m[1] || ''));
+  const tags = (src, tag) => [...src.matchAll(new RegExp(`<${tag}\\s[^>]*>`, 'g'))].map((m) => m[0]), attr = (t, a) => (new RegExp(`\\b${a}=["']([^"']*)["']`).exec(t) || [])[1];
+  const sheet = tags(await zipText(xl, ents, 'xl/workbook.xml'), 'sheet').find((t) => /^PARTICIPANTES/i.test(attr(t, 'name') || ''));
+  const rel = sheet && tags(await zipText(xl, ents, 'xl/_rels/workbook.xml.rels'), 'Relationship').find((t) => attr(t, 'Id') === attr(sheet, 'r:id'));
+  if (!rel) throw new Error('aba PARTICIPANTES não encontrada');
+  const path = attr(rel, 'Target').replace(/^\//, '').replace(/^(?!xl\/)/, 'xl/'), rows = new Map();
+  for (const m of (await zipText(xl, ents, path)).matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
+    const ref = /\br="([A-Z]+)(\d+)"/.exec(m[1]), type = attr(m[1], 't'), v = m[2] && /<v>([\s\S]*?)<\/v>/.exec(m[2]);
+    if (!ref || !m[2]) continue;
+    const val = type === 'inlineStr' ? xml(m[2]) : !v ? '' : type === 's' ? shared[+v[1]] || '' : type === 'str' ? xml(v[1]) : !type || type === 'n' ? String(+v[1]) : '';
+    const r = rows.get(+ref[2]) || rows.set(+ref[2], {}).get(+ref[2]); r[ref[1]] = val.trim();
+  }
+  const dict = {}; let cur = null;
+  for (const r of [...rows.keys()].sort((a, b) => a - b)) {
+    const c = rows.get(r);
+    if (c.A) cur = /^[A-Z][A-Z0-9_]*$/.test(c.A) ? (dict[c.A] = { desc: (c.B || '').replace(/[¹²³]+$/, '').replace(/([A-Za-zÀ-ÿ.?)])\d$/, '$1'), opts: [] }) : null; // titles and footnotes end a variable
+    if (cur && c.C && c.D) cur.opts.push([c.C, c.D]); // rows such as "1º dígito: Região" have no label and are skipped
+  }
+  return dict;
+}
+async function loadProfile(file, ents) {
+  const ent = ents.find((x) => /(^|\/)PARTICIPANTES[^/]*\.csv$/i.test(x.name));
+  if (!ent) throw new Error('Não encontrei PARTICIPANTES_*.csv dentro do ZIP.');
+  const cap = Math.max(1 << 16, Math.ceil(ent.usize / 90)); // a row has at least ~90 bytes, so the buffers are almost never regrown
+  await streamCsv(await zipStream(file, ent), ent.usize, 'participantes', { header: (l) => pSetup(l, cap), lines: (b, e, base) => lines(b, e, base, pRow), rows: () => pn });
+  pcols = {}; pcats = {};
+  for (const p of pplan) if (p && p.k !== 'mc') { pcols[p.name] = p.a.length === pn ? p.a : p.a.slice(0, pn); if (p.k === 'c') pcats[p.name] = p.keys; }
+  pplan = [];
+}
+function profileInfo() { // per variable: question text and its options [index, code, label|null] in dictionary order
+  if (!pcols) return null;
+  const vars = Object.keys(pcats).map((name) => {
+    const d = plabels && plabels[name], lab = new Map(d ? d.opts : []), rank = new Map(d ? d.opts.map(([k], j) => [k, j]) : []);
+    const opts = pcats[name].map((key, i) => [i, key, lab.get(key) ?? null]).sort((a, b) => (rank.get(a[1]) ?? 1e6) - (rank.get(b[1]) ?? 1e6) || a[0] - b[0]);
+    return { name, desc: d ? d.desc : null, opts };
+  });
+  return { rows: pn, vars };
+}
 // A deflate stream has no random access, so the decompressed results CSV is also written to a temporary OPFS file (disk, not memory):
 // candidate details read ONE row from it by byte offset, instantly. "Apagar dados" deletes it.
 const COPY = 'resultados.csv';
@@ -172,23 +263,16 @@ async function copyOpen() {
   try { const dir = await navigator.storage.getDirectory(); sink = await (await dir.getFileHandle(COPY, { create: true })).createSyncAccessHandle(); sink.truncate(0); }
   catch { sink = null; }
 }
-async function load(file) {
-  ready = false; cols = null; copy = false;
-  if (sink) { try { sink.close(); } catch {} sink = null; }
-  let stream = file.stream(), size = file.size;
-  if (/\.zip$/i.test(file.name)) {
-    const ent = (await zipEntries(file)).find((x) => /(^|\/)RESULTADOS[^/]*\.csv$/i.test(x.name));
-    if (!ent) throw new Error('Não encontrei RESULTADOS_*.csv dentro do ZIP.');
-    stream = await zipStream(file, ent); size = ent.usize; await copyOpen();
-  }
-  const t0 = performance.now(), reader = stream.getReader();
-  postMessage({ t: 'progress', read: 0, size, rows: 0 });
+// Shared by every CSV: reads a stream in chunks and hands complete lines to h.lines(b, end, base); h.header gets the first line.
+async function streamCsv(stream, size, what, h) {
+  const reader = stream.getReader();
+  postMessage({ t: 'progress', read: 0, size, rows: 0, what });
   let carry = new Uint8Array(0), read = 0, last = 0, header = false;
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
     read += value.length;
-    if (sink) try { sink.write(value, { at: read - value.length }); } catch { sink.close(); sink = null; } // no disk space: details fall back to the CSV picker
+    if (h.chunk) h.chunk(value, read);
     let b = value;
     if (carry.length) { b = new Uint8Array(carry.length + value.length); b.set(carry); b.set(value, carry.length); }
     const base = read - b.length; // file offset of b[0]
@@ -198,18 +282,39 @@ async function load(file) {
       carry = b; continue;
     }
     let start = 0;
-    if (!header) { const nl = b.indexOf(10); setup(b.subarray(0, nl)); header = true; start = nl + 1; }
-    lines(start ? b.subarray(start) : b, end - start, base + start);
+    if (!header) { const nl = b.indexOf(10); h.header(b.subarray(0, nl)); header = true; start = nl + 1; }
+    h.lines(start ? b.subarray(start) : b, end - start, base + start);
     carry = b.slice(end);
     const now = performance.now();
-    if (now - last > 100) { last = now; postMessage({ t: 'progress', read, size, rows: n }); }
+    if (now - last > 100) { last = now; postMessage({ t: 'progress', read, size, rows: h.rows(), what }); }
   }
+  if (carry.length) h.lines(carry, carry.length, read - carry.length);
+}
+async function load(file) {
+  ready = false; cols = null; copy = false;
+  if (sink) { try { sink.close(); } catch {} sink = null; }
+  pcols = null; pcats = {}; pdicts = null; plabels = null; notes = [];
+  let stream = file.stream(), size = file.size, ents = null;
+  if (/\.zip$/i.test(file.name)) {
+    const ent = (ents = await zipEntries(file)).find((x) => /(^|\/)RESULTADOS[^/]*\.csv$/i.test(x.name));
+    if (!ent) throw new Error('Não encontrei RESULTADOS_*.csv dentro do ZIP.');
+    stream = await zipStream(file, ent); size = ent.usize; await copyOpen();
+  }
+  const t0 = performance.now();
+  await streamCsv(stream, size, 'resultados', {
+    chunk: (value, read) => { if (sink) try { sink.write(value, { at: read - value.length }); } catch { sink.close(); sink = null; } }, // no disk space: details fall back to the CSV picker
+    header: (line) => setup(line), lines, rows: () => n,
+  });
   if (sink) { sink.flush(); sink.close(); sink = null; copy = true; }
-  if (carry.length) lines(carry, carry.length, read - carry.length);
   cols = {};
   for (const p of plan) if (p && p.a) cols[p.name] = p.a.slice(0, n);
   cols.ROW_OFFSET = offs.slice(0, n); offs = null;
   plan = []; // free the grown buffers: only the trimmed columns remain
+  if (ents) { // the official ZIP also carries the participant profile and the data dictionary; a failure here never blocks the results
+    try { await loadProfile(file, ents); } catch (err) { pcols = null; notes.push(String(err.message || err)); }
+    const dic = ents.find((x) => /\.xlsx$/i.test(x.name));
+    try { if (!dic) throw new Error('não encontrei o dicionário .xlsx'); plabels = await readDictionary(file, dic); } catch (err) { plabels = null; notes.push('Sem rótulos das categorias: ' + String(err.message || err) + '.'); }
+  }
   postMessage({ t: 'precompute', rows: n });
   buildSimpleRanks();
   ready = true;
@@ -218,7 +323,7 @@ async function load(file) {
   catch (err) { postMessage({ t: 'savefail', msg: String(err && err.message || err) }); }
 }
 function announce(ms, cached) {
-  postMessage({ t: 'loaded', rows: n, ufs: ufNames, munis: dicts[1].codes.map((c, i) => [c, dicts[1].names[i]]), ms, cached, copy });
+  postMessage({ t: 'loaded', rows: n, ufs: ufNames, munis: dicts[1].codes.map((c, i) => [c, dicts[1].names[i]]), ms, cached, copy, profile: profileInfo(), notes });
 }
 // Precompute exact default simple-average ranks once, then reuse them on every filter and page.
 function buildSimpleRanks() {
@@ -251,6 +356,7 @@ function buildSimpleRanks() {
   cols.RANK_AVG_ALL = all; cols.RANK_AVG_STATE = stateRank; cols.RANK_AVG_CITY = cityRank; cols.RANK_AVG_SCHOOL = schoolRank;
 }
 // Cache: only the compact columns (~300 MB) go to IndexedDB, never the raw CSV.
+const CACHE_V = 7;
 const idb = () => new Promise((res, rej) => {
   const r = indexedDB.open('enem-cache', 1);
   r.onupgradeneeded = () => r.result.createObjectStore('kv');
@@ -265,8 +371,10 @@ async function saveCache(file) {
   try {
     await tx(db, 'readwrite', (s) => s.clear());
     for (const k in cols) await tx(db, 'readwrite', (s) => s.put(cols[k], 'col:' + k));
-    const meta = { v: 6, copy, rows: n, cols: Object.keys(cols), ufNames, dicts: dicts.map((d) => ({ names: d.names, codes: d.codes })),
-      file: { name: file.name, size: file.size }, header: headerText, savedAt: Date.now() };
+    for (const k in pcols) await tx(db, 'readwrite', (s) => s.put(pcols[k], 'pcol:' + k));
+    const meta = { v: CACHE_V, copy, rows: n, cols: Object.keys(cols), ufNames, dicts: dicts.map((d) => ({ names: d.names, codes: d.codes })),
+      file: { name: file.name, size: file.size }, header: headerText, savedAt: Date.now(),
+      profile: pcols ? { rows: pn, cols: Object.keys(pcols), cats: pcats, dict: { names: pdicts.names, codes: pdicts.codes }, labels: plabels } : null, notes };
     await tx(db, 'readwrite', (s) => s.put(meta, 'meta')); // written last: a partial save is never used
   } finally { db.close(); }
 }
@@ -274,16 +382,18 @@ async function loadCache() {
   const t0 = performance.now(), db = await idb();
   try {
     const meta = await tx(db, 'readonly', (s) => s.get('meta'));
-    if (!meta || meta.v !== 6) throw new Error('Dados salvos incompatíveis; selecione o ZIP novamente.');
+    if (!meta || meta.v !== CACHE_V) throw new Error('Dados salvos incompatíveis; selecione o ZIP novamente.');
     const c = {};
     for (const k of meta.cols) c[k] = await tx(db, 'readonly', (s) => s.get('col:' + k));
+    const pr = meta.profile; pcols = null; pcats = {}; pdicts = null; plabels = null; notes = meta.notes || [];
+    if (pr) { pcols = {}; for (const k of pr.cols) pcols[k] = await tx(db, 'readonly', (s) => s.get('pcol:' + k)); pn = pr.rows; pcats = pr.cats; pdicts = pr.dict; plabels = pr.labels; }
     cols = c; n = meta.rows; ufNames = meta.ufNames; dicts = meta.dicts; headerText = meta.header || null; copy = !!meta.copy; ready = true;
   } finally { db.close(); }
   announce(Math.round(performance.now() - t0), true);
 }
 async function cacheMeta() {
   const db = await idb();
-  try { const m = await tx(db, 'readonly', (s) => s.get('meta')); return m && m.v === 6 ? { rows: m.rows, file: m.file, savedAt: m.savedAt } : null; }
+  try { const m = await tx(db, 'readonly', (s) => s.get('meta')); return m && m.v === CACHE_V ? { rows: m.rows, file: m.file, savedAt: m.savedAt } : null; }
   finally { db.close(); }
 }
 async function clearCache() {
@@ -468,7 +578,7 @@ self.onmessage = async ({ data }) => {
     else if (data.t === 'init') { let meta = null; try { meta = await cacheMeta(); } catch {} postMessage({ t: meta ? 'cache' : 'nocache', meta }); }
     else if (data.t === 'usecache') { resetOrders(); await loadCache(); }
     else if (data.t === 'clearcache') { await clearCache(); postMessage({ t: 'cleared' }); }
-    else if (data.t === 'release') { resetOrders(); cols = null; matchIdx = null; offs = null; headerText = null; n = 0; ready = false; postMessage({ t: 'released' }); }
+    else if (data.t === 'release') { resetOrders(); cols = null; pcols = null; pdicts = null; plabels = null; matchIdx = null; offs = null; headerText = null; n = 0; ready = false; postMessage({ t: 'released' }); }
   } catch (err) { postMessage({ t: 'error', msg: String(err.message || err) }); }
   if (ready) warmOrders(); // idle time goes to pre-building every sort order
 };

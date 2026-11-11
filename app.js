@@ -280,12 +280,12 @@ function initWorker() {
       setStatus(`Calculando posições padrão para ${fmt(m.rows)} candidatos…`);
     } else if (m.t === 'progress') {
       $('bar').hidden = false; $('bar').value = m.read / m.size;
-      $('status').textContent = `Lendo… ${Math.round(100 * m.read / m.size)}% • ${fmt(m.rows)} linhas • ${Math.round((performance.now() - t0) / 1000)} s`;
+      $('status').textContent = `Lendo ${m.what}… ${Math.round(100 * m.read / m.size)}% • ${fmt(m.rows)} linhas • ${Math.round((performance.now() - t0) / 1000)} s`;
     } else if (m.t === 'loaded') {
       munis = m.munis.map(([c, n]) => ({ key: norm(n), label: `${n} (${UF_BY_IBGE[Math.floor(c / 100000)] || '?'})` }));
       muniSel.clear(); ufSel.clear(); renderMunis(); hasCopy = m.copy;
       $('bar').hidden = true; $('work').hidden = false; showCache();
-      setStatus(`${fmt(m.rows)} linhas carregadas ${m.cached ? 'dos dados salvos' : ''} em ${(m.ms / 1000).toFixed(1)} s.`);
+      setStatus(`${fmt(m.rows)} linhas carregadas ${m.cached ? 'dos dados salvos' : ''} em ${(m.ms / 1000).toFixed(1)} s.${m.profile ? ` Perfil: ${fmt(m.profile.rows)} participantes.` : ''}${m.notes.length ? ' ' + m.notes.join(' ') : ''}`);
       run();
     } else if (m.t === 'result') {
       if (m.id !== seq) return;
