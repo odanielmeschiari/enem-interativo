@@ -17,14 +17,14 @@ Object.defineProperty(navigator, 'storage', { value: { getDirectory: async () =>
       write(b, { at }) { const old = opfsFiles.get(name), nb = Buffer.alloc(Math.max(old.length, at + b.length)); old.copy(nb); Buffer.from(b).copy(nb, at); opfsFiles.set(name, nb); } }) };
   },
   removeEntry: async (name) => { opfsFiles.delete(name); } }) } });
-function zip(entries, z64) { // deflated ZIP builder; z64 = every size and offset in ZIP64 extra fields
+function zip(entries, z64, d64) { // deflated ZIP builder; z64 = every size and offset in ZIP64 extra fields; d64 = method 9 (literal-only Huffman is valid Deflate64 too)
   const parts = [], cds = []; let off = 0;
   for (const [name, data] of entries) {
-    const raw = zlib.deflateRawSync(data), nm = Buffer.from(name), big = 0xFFFFFFFF, w = (b, o, v) => b.writeBigUInt64LE(BigInt(v), o);
+    const raw = zlib.deflateRawSync(data, d64 ? { strategy: zlib.constants.Z_HUFFMAN_ONLY } : {}), nm = Buffer.from(name), big = 0xFFFFFFFF, w = (b, o, v) => b.writeBigUInt64LE(BigInt(v), o);
     const lx = Buffer.alloc(z64 ? 20 : 0), cx = Buffer.alloc(z64 ? 28 : 0), lh = Buffer.alloc(30), cd = Buffer.alloc(46);
     if (z64) { lx.writeUInt16LE(1, 0); lx.writeUInt16LE(16, 2); w(lx, 4, data.length); w(lx, 12, raw.length); cx.writeUInt16LE(1, 0); cx.writeUInt16LE(24, 2); w(cx, 4, data.length); w(cx, 12, raw.length); w(cx, 20, off); }
-    lh.writeUInt32LE(0x04034b50, 0); lh.writeUInt16LE(8, 8); lh.writeUInt32LE(z64 ? big : raw.length, 18); lh.writeUInt32LE(z64 ? big : data.length, 22); lh.writeUInt16LE(nm.length, 26); lh.writeUInt16LE(lx.length, 28);
-    cd.writeUInt32LE(0x02014b50, 0); cd.writeUInt16LE(8, 10); cd.writeUInt32LE(z64 ? big : raw.length, 20); cd.writeUInt32LE(z64 ? big : data.length, 24); cd.writeUInt16LE(nm.length, 28); cd.writeUInt16LE(cx.length, 30); cd.writeUInt32LE(z64 ? big : off, 42);
+    lh.writeUInt32LE(0x04034b50, 0); lh.writeUInt16LE(d64 ? 9 : 8, 8); lh.writeUInt32LE(z64 ? big : raw.length, 18); lh.writeUInt32LE(z64 ? big : data.length, 22); lh.writeUInt16LE(nm.length, 26); lh.writeUInt16LE(lx.length, 28);
+    cd.writeUInt32LE(0x02014b50, 0); cd.writeUInt16LE(d64 ? 9 : 8, 10); cd.writeUInt32LE(z64 ? big : raw.length, 20); cd.writeUInt32LE(z64 ? big : data.length, 24); cd.writeUInt16LE(nm.length, 28); cd.writeUInt16LE(cx.length, 30); cd.writeUInt32LE(z64 ? big : off, 42);
     const piece = Buffer.concat([lh, nm, lx, raw]); parts.push(piece); cds.push(cd, nm, cx); off += piece.length;
   }
   const cdb = Buffer.concat(cds), eo = Buffer.alloc(22), tail = [];
@@ -156,5 +156,6 @@ const send = (d, t) => { const p = wait(t); self.onmessage({ data: d }); return 
   const noDict = await send({ t: 'load', file: new File([zip([['microdados_enem_2024/DADOS/PARTICIPANTES_2024.csv', PART], ['microdados_enem_2024/DADOS/RESULTADOS_2024.csv', csv]], false)], 'enem.zip') }, 'loaded');
   assert.strictEqual(noDict.profile.rows, 6); assert(noDict.notes.length === 1 && noDict.profile.vars.every((x) => x.desc === null && x.opts.every((o) => o[2] === null)), 'no dictionary: codes stay unlabeled');
   console.log('profile ok');
+  const d9 = await send({ t: 'load', file: new File([zip([['microdados_enem_2024/DADOS/RESULTADOS_2024.csv', csv]], false, true)], 'enem.zip') }, 'loaded'); assert.strictEqual(d9.rows, allStats.total, 'deflate64 rows'); console.log('deflate64 ok');
   await send({ t: 'clearcache' }, 'cleared'); assert(!opfsFiles.has('resultados.csv'), 'copy deleted'); console.log('after clear:', (await send({ t: 'init' }, 'nocache')).t);
 })();

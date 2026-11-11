@@ -155,11 +155,113 @@ async function zipEntries(file) {
   }
   return out;
 }
+// Deflate64 (ZIP method 9, written by Windows for big files; DecompressionStream cannot read it): streaming inflater as a TransformStream.
+// Differences from Deflate: 64 KB window, length code 285 = 3 + 16 extra bits, distance codes 30 and 31.
+const LB = [3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31, 35, 43, 51, 59, 67, 83, 99, 115, 131, 163, 195, 227, 3];
+const LX = [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 16];
+const DB = [1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193, 257, 385, 513, 769, 1025, 1537, 2049, 3073, 4097, 6145, 8193, 12289, 16385, 24577, 32769, 49153];
+const DX = [0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13, 14, 14];
+const CLO = [16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15];
+function huff(lens, n, tab) { // canonical code -> lookup table indexed by the next `bits` input bits; entry = symbol << 4 | length; returns bits
+  const cnt = new Uint16Array(16), next = new Uint16Array(16);
+  let max = 1;
+  for (let i = 0; i < n; i++) { cnt[lens[i]]++; if (lens[i] > max) max = lens[i]; }
+  cnt[0] = 0;
+  for (let l = 1, c = 0; l < 16; l++) next[l] = c = (c + cnt[l - 1]) << 1;
+  tab.fill(0, 0, 1 << max);
+  for (let s = 0; s < n; s++) {
+    const l = lens[s]; if (!l) continue;
+    let c = next[l]++, r = 0;
+    for (let k = 0; k < l; k++, c >>= 1) r = (r << 1) | (c & 1);
+    for (let i = r; i < 1 << max; i += 1 << l) tab[i] = s << 4 | l;
+  }
+  return max;
+}
+function inflate64() {
+  const H = 65536, CAP = H + (1 << 21), out = new Uint8Array(CAP), lt = new Uint16Array(1 << 15), dt = new Uint16Array(1 << 15), lens = new Uint8Array(320), cl = new Uint16Array(128);
+  let inp, ip = 0, end = 0, buf = 0, cnt = 0, op = 0, fs = 0, state = 0, last = 0, left = 0, lbits = 0, dbits = 0, rest = new Uint8Array(0);
+  const fill = () => { while (cnt <= 24) { buf |= inp[ip++] << cnt; cnt += 8; } };
+  const get = (n) => { fill(); const v = buf & ((1 << n) - 1); buf >>>= n; cnt -= n; return v; };
+  function header() { // reads one block header (needs >= 640 bytes of input, so it never runs dry)
+    last = get(1); const type = get(2);
+    if (type === 0) { // stored: drop to a byte boundary, then LEN and NLEN
+      const k = cnt & 7; buf >>>= k; cnt -= k; left = get(16); get(16); state = 2;
+    } else if (type === 1) { // fixed codes
+      for (let i = 0; i < 288; i++) lens[i] = i < 144 ? 8 : i < 256 ? 9 : i < 280 ? 7 : 8;
+      lbits = huff(lens, 288, lt); lens.fill(5, 0, 32); dbits = huff(lens, 32, dt); state = 1;
+    } else if (type === 2) {
+      const nl = get(5) + 257, nd = get(5) + 1, nc = get(4) + 4; lens.fill(0);
+      for (let i = 0; i < nc; i++) lens[CLO[i]] = get(3);
+      const cb = huff(lens, 19, cl), tot = nl + nd, ln = new Uint8Array(tot);
+      for (let i = 0; i < tot;) {
+        fill(); const e = cl[buf & ((1 << cb) - 1)], s = e >> 4; buf >>>= e & 15; cnt -= e & 15;
+        if (!(e & 15)) throw new Error('Dados Deflate64 corrompidos.');
+        if (s < 16) { ln[i++] = s; continue; }
+        const r = s === 16 ? 3 + get(2) : s === 17 ? 3 + get(3) : 11 + get(7), v = s === 16 ? ln[i - 1] : 0;
+        if (i + r > tot || (s === 16 && !i)) throw new Error('Dados Deflate64 corrompidos.');
+        ln.fill(v, i, i + r); i += r;
+      }
+      lbits = huff(ln.subarray(0, nl), nl, lt); dbits = huff(ln.subarray(nl), nd, dt); state = 1;
+    } else throw new Error('Dados Deflate64 corrompidos.');
+  }
+  function flush(c) {
+    if (op > fs) c.enqueue(out.slice(fs, op));
+    const keep = Math.min(op, H); out.copyWithin(0, op - keep, op); op = fs = keep; // the last 64 KB stay as the match window
+  }
+  function run(c) {
+    for (;;) {
+      if (state === 3) return;
+      if (op > CAP - 65540) flush(c);
+      if (state === 0) { if (end - ip < 640) return; header(); continue; }
+      if (state === 2) { // stored block: whole bytes still in the bit buffer first, then straight from the input
+        while (left && cnt >= 8) { out[op++] = buf & 255; buf >>>= 8; cnt -= 8; left--; }
+        const k = Math.min(left, end - ip, CAP - 65540 - op + 1); out.set(inp.subarray(ip, ip + k), op); ip += k; op += k; left -= k;
+        if (left) { if (end - ip) continue; return; }
+        state = last ? 3 : 0; continue;
+      }
+      let b = buf, n = cnt, p = ip, o = op; const lm = (1 << lbits) - 1, dm = (1 << dbits) - 1, stop = CAP - 65540;
+      while (end - p >= 16 && o <= stop) {
+        while (n <= 24) { b |= inp[p++] << n; n += 8; }
+        let e = lt[b & lm], s = e >> 4; b >>>= e & 15; n -= e & 15;
+        if (!(e & 15)) throw new Error('Dados Deflate64 corrompidos.');
+        if (s < 256) { out[o++] = s; continue; }
+        if (s === 256) { state = last ? 3 : 0; break; }
+        s -= 257; if (s > 28) throw new Error('Dados Deflate64 corrompidos.');
+        let x = LX[s]; while (n <= 24) { b |= inp[p++] << n; n += 8; }
+        const len = LB[s] + (b & ((1 << x) - 1)); b >>>= x; n -= x;
+        e = dt[b & dm]; s = e >> 4; b >>>= e & 15; n -= e & 15;
+        if (!(e & 15)) throw new Error('Dados Deflate64 corrompidos.');
+        x = DX[s]; while (n <= 24) { b |= inp[p++] << n; n += 8; }
+        const dist = DB[s] + (b & ((1 << x) - 1)); b >>>= x; n -= x;
+        if (dist > o) throw new Error('Dados Deflate64 corrompidos.');
+        if (dist >= len && len > 16) out.copyWithin(o, o - dist, o - dist + len), o += len;
+        else for (let f = o - dist, t = o + len; o < t;) out[o++] = out[f++];
+      }
+      buf = b; cnt = n; ip = p; op = o;
+      if (state !== 1) continue;
+      if (o <= stop) return; // input ran short
+    }
+  }
+  return new TransformStream({
+    transform(chunk, c) {
+      if (state === 3) return;
+      if (rest.length) { inp = new Uint8Array(rest.length + chunk.length); inp.set(rest); inp.set(chunk, rest.length); } else inp = chunk;
+      ip = 0; end = inp.length; run(c);
+      rest = inp.slice(ip); flush(c);
+    },
+    flush(c) {
+      if (state === 3) return;
+      inp = new Uint8Array(rest.length + 700); inp.set(rest); ip = 0; end = inp.length; run(c); flush(c); // zero padding: the last symbols never run dry
+      if (state !== 3) throw new Error('Dados Deflate64 truncados.');
+    },
+  });
+}
 async function zipStream(file, ent) {
   const h = new DataView(await file.slice(ent.lho, ent.lho + 30).arrayBuffer());
   const start = ent.lho + 30 + h.getUint16(26, true) + h.getUint16(28, true), raw = file.slice(start, start + ent.csize).stream();
   if (ent.method === 0) return raw;
-  if (ent.method !== 8) throw new Error('Método de compressão do ZIP não suportado.');
+  if (ent.method === 9) return raw.pipeThrough(inflate64());
+  if (ent.method !== 8) throw new Error('Método de compressão do ZIP não suportado (método ' + ent.method + ').');
   return raw.pipeThrough(new DecompressionStream('deflate-raw'));
 }
 // Participant profile (PARTICIPANTES): one small Uint8Array per categorical column. It does NOT join with RESULTADOS (the dictionary says
