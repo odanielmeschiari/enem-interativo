@@ -129,7 +129,7 @@ const send = (d, t) => { const p = wait(t); self.onmessage({ data: d }); return 
   await q({ ranges: { NU_NOTA_REDACAO: [800, 1000] } }); await q({ muni: [0] });
   const csv = fs.readFileSync(f);
   for (const z64 of [false, true]) { // the official ZIP, then ZIP64: the CSV is streamed out of the archive; details come from the temporary OPFS copy, no file needed
-    const zf = new File([zip([['DADOS/PARTICIPANTES_2024.csv', PART], ['DICION\u00c1RIO/Dicion\u00e1rio_Microdados_Enem_2024.xlsx', DICT], ['DADOS/RESULTADOS_2024.csv', csv]], z64)], 'enem.zip');
+    const zf = new File([zip([['microdados_enem_2024/DADOS/PARTICIPANTES_2024.csv', PART], ['microdados_enem_2024/DICION\u00c1RIO/Dicion\u00e1rio_Microdados_Enem_2024.xlsx', DICT], ['microdados_enem_2024/DADOS/RESULTADOS_2024.csv', csv]], z64)], 'enem.zip');
     const savedZip = wait('saved');
     const lz = await send({ t: 'load', file: zf }, 'loaded'); await savedZip;
     assert(lz.copy && lz.rows === allStats.total, 'zip rows');
@@ -151,9 +151,9 @@ const send = (d, t) => { const p = wait(t); self.onmessage({ data: d }); return 
     await q({}); await checkDetail((await send({ t: 'page', offset: 0, limit: 6, rankKey: 'avg' }, 'page')).rows, null); // after the cache too
     console.log('zip ok', z64 ? '(ZIP64)' : '');
   }
-  const noPart = new File([zip([['DADOS/RESULTADOS_2024.csv', csv]], false)], 'enem.zip'); // a ZIP without profile or dictionary still loads the results
+  const noPart = new File([zip([['microdados_enem_2024/DADOS/RESULTADOS_2024.csv', csv]], false)], 'enem.zip'); // a ZIP without profile or dictionary still loads the results
   const lp = await send({ t: 'load', file: noPart }, 'loaded'); assert.strictEqual(lp.profile, null); assert(lp.notes.length === 2, lp.notes.join('|')); assert.strictEqual(lp.rows, allStats.total);
-  const noDict = await send({ t: 'load', file: new File([zip([['DADOS/PARTICIPANTES_2024.csv', PART], ['DADOS/RESULTADOS_2024.csv', csv]], false)], 'enem.zip') }, 'loaded');
+  const noDict = await send({ t: 'load', file: new File([zip([['microdados_enem_2024/DADOS/PARTICIPANTES_2024.csv', PART], ['microdados_enem_2024/DADOS/RESULTADOS_2024.csv', csv]], false)], 'enem.zip') }, 'loaded');
   assert.strictEqual(noDict.profile.rows, 6); assert(noDict.notes.length === 1 && noDict.profile.vars.every((x) => x.desc === null && x.opts.every((o) => o[2] === null)), 'no dictionary: codes stay unlabeled');
   console.log('profile ok');
   await send({ t: 'clearcache' }, 'cleared'); assert(!opfsFiles.has('resultados.csv'), 'copy deleted'); console.log('after clear:', (await send({ t: 'init' }, 'nocache')).t);
