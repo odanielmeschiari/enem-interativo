@@ -40,7 +40,7 @@ h2 button { float:right; font-size:15px; }
 @media (max-width:900px) { .grid { grid-template-columns:1fr; } }
 
 select { appearance:none; padding:6px 38px 6px 12px; border:1px solid var(--line); border-radius:6px; background:var(--sunk) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2 4l4 4 4-4' fill='none' stroke='%23bdbdbd' stroke-width='1.6'/%3E%3C/svg%3E") right 12px center / 12px no-repeat; color:var(--fg); cursor:pointer; }
-select:hover, select:focus-visible { border-color:var(--sel); } select:focus-visible { outline:2px solid var(--acc); outline-offset:2px; }
+select:focus-visible { outline:2px solid var(--acc); outline-offset:2px; }
 @supports (appearance:base-select) { /* styled list popup (Chromium 135+); older browsers keep the plain list above */
   select, ::picker(select) { appearance:base-select; }
   select { display:inline-flex; align-items:center; gap:14px; padding:6px 14px; background:var(--sunk); }
@@ -133,7 +133,7 @@ body::before { content:""; position:fixed; inset:0; z-index:-1; background:linea
 .score-details { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:5px 10px; padding-top:8px; border-top:1px solid var(--line); }
 .score-details span { display:flex; justify-content:space-between; gap:6px; color:var(--mut); font-size:13px; }
 .score-details b { color:var(--fg); font-weight:500; }
-.weights { display:grid; gap:10px; margin-bottom:12px; padding:12px 14px; border:1px solid var(--line); background:var(--sunk); border-radius:var(--r); }
+.weights { display:grid; gap:10px; margin-bottom:12px; }
 .weight-heading { display:flex; align-items:baseline; gap:10px; }
 .weight-heading b { color:var(--fg); font-size:15px; }
 .weight-heading small { color:var(--mut); font-size:14px; }
@@ -175,13 +175,13 @@ dialog { width:min(1100px, 96vw); max-height:92vh; overflow:auto; background:var
 .upload i { width:36px; height:36px; background:currentColor; -webkit-mask:url(assets/icons/upload.svg) center / contain no-repeat; mask:url(assets/icons/upload.svg) center / contain no-repeat; }
 
 /* Collapsible filter sections */
-#f details { margin-top:12px; border:1px solid var(--line); border-radius:var(--r); background:var(--sunk); }
-#f summary { display:flex; align-items:center; gap:10px; padding:14px 18px; font:600 20px var(--head); cursor:pointer; list-style:none; }
-#f summary::-webkit-details-marker { display:none; }
-#f summary::after { content:""; margin-left:auto; width:10px; height:10px; border:solid var(--mut); border-width:0 2px 2px 0; transform:rotate(45deg); transition:transform .15s; }
-#f details[open] > summary::after { transform:rotate(-135deg); }
-#f details[open] > summary { border-bottom:1px solid var(--line); }
-#f details > :not(summary) { margin-left:18px; margin-right:18px; } #f details > :last-child { margin-bottom:18px; }
+details { margin-top:12px; border:1px solid var(--line); border-radius:var(--r); background:var(--sunk); }
+summary { display:flex; align-items:center; gap:10px; padding:14px 18px; font:600 20px var(--head); cursor:pointer; list-style:none; }
+summary::-webkit-details-marker { display:none; }
+summary::after { content:""; margin-left:auto; width:10px; height:10px; border:solid var(--mut); border-width:0 2px 2px 0; transform:rotate(45deg); transition:transform .15s; }
+details[open] > summary::after { transform:rotate(-135deg); }
+details[open] > summary { border-bottom:1px solid var(--line); }
+details > :not(summary) { margin-left:18px; margin-right:18px; } details > :last-child { margin-bottom:18px; }
 .n { min-width:24px; padding:0 7px; border-radius:12px; background:var(--sel); color:#fff; font:600 14px/24px var(--ui); text-align:center; } .n:empty { display:none; }
 
 /* On/off switches built from the toggle icons */
@@ -202,3 +202,5 @@ dialog { width:min(1100px, 96vw); max-height:92vh; overflow:auto; background:var
 .wipe:hover { background:#ffcfcf; } .wipe i { width:22px; height:22px; }
 
 [data-f] { cursor:pointer; } [data-f]:hover { background:#ffffff26; }
+
+input[type=number] { appearance:textfield; -moz-appearance:textfield; } input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer-spin-button { -webkit-appearance:none; margin:0; }

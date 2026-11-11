@@ -26,7 +26,7 @@ const SMALL = new Set(['DF', 'SE', 'AL', 'PB', 'RN', 'ES']); // too small to pri
 const SVGNS = 'http://www.w3.org/2000/svg';
 let mapEls = null, lastResult = null;
 async function buildMap() {
-  $('metric').innerHTML = '<option value="-1">Colorir por: nº de candidatos</option>' + AREAS.map(([, l], k) => `<option value="${k}">Colorir por: média de ${l}</option>`).join('');
+  $('metric').innerHTML = '<option value="-1">Nº de candidatos</option>' + AREAS.map(([, l], k) => `<option value="${k}">Média de ${l}</option>`).join('');
   try {
     const r = await fetch('assets/brazil.svg');
     if (!r.ok) throw new Error(r.status);
