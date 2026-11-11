@@ -83,7 +83,7 @@ function renderMap(m) {
 const PAGE = 12, LBL = (id) => Object.fromEntries(GROUPS.find((g) => g.id === id).opts);
 let pageOff = 0, pageTotal = 0;
 function requestPage() {
-  const [sort, dir] = $('sort').value.split(':');
+  const [sort, dir] = sortValue.split(':');
   worker.postMessage({ t: 'page', id: seq, sort: sort || null, dir, w: W, offset: pageOff, limit: PAGE, rankKey: $('rankmetric').value });
 }
 const TILES = [[3, 'Matemática'], [1, 'Humanas'], [2, 'Linguagens'], [0, 'Natureza'], [4, 'Redação']]; // [index in r.n, label]; same order as the weight inputs
@@ -312,11 +312,19 @@ function start(file) {
 }
 
 buildFilters(); buildMap();
-$('sort').innerHTML = '<option value="">Ordem do arquivo</option>' + [['avg', 'média simples'], ['wavg', 'média ponderada'], ...AREAS.map(([k, l]) => [k, l]), ['ACERTOS_CN', 'acertos em Natureza'], ['ACERTOS_CH', 'acertos em Humanas'], ['ACERTOS_LC', 'acertos em Linguagens'], ['ACERTOS_MT', 'acertos em Matemática'], ['ACERTOS_TOTAL', 'acertos totais']].flatMap(([k, l]) => [`<option value="${k}:desc">Maior ${l}</option>`, `<option value="${k}:asc">Menor ${l}</option>`]).join('');
+const SHORT = ['Natureza', 'Humanas', 'Linguagens', 'Matemática', 'Redação'];
+const SORT_MENU = [['Médias', [['avg', 'Média simples'], ['wavg', 'Média ponderada']]], ['Notas', AREAS.map(([k], i) => [k, SHORT[i]])], ['Acertos', [...HIT_FILTERS.map(([k], i) => [k, SHORT[i]]), ['ACERTOS_TOTAL', 'Total']]]];
+const SORT_LABEL = { '': 'Ordem do arquivo' };
+let sortValue = ''; // "<field>:<desc|asc>", or '' for file order
+const sortLeaf = (v, t) => `<li><button type="button" data-v="${v}">${t}</button></li>`;
+$('sortlist').innerHTML = sortLeaf('', 'Ordem do arquivo') + SORT_MENU.map(([g, items]) => `<li class="sub"><button type="button" aria-haspopup="true">${g}</button><ul>` + items.map(([k, l]) => {
+  SORT_LABEL[k + ':desc'] = `${g} › ${l} › Maior`; SORT_LABEL[k + ':asc'] = `${g} › ${l} › Menor`;
+  return `<li class="sub"><button type="button" aria-haspopup="true">${l}</button><ul>${sortLeaf(k + ':desc', 'Maior')}${sortLeaf(k + ':asc', 'Menor')}</ul></li>`;
+}).join('') + '</ul></li>').join('');
 $('weights').innerHTML = '<div class="weight-heading"><b>Pesos da média ponderada</b></div><div class="weight-inputs">' + TILES.map(([i, l]) => `<label><span>${l}</span><input type="number" min="0" step="any" value="1" data-i="${i}"></label>`).join('') + '</div><label class="rank-control" for="rankmetric"><span>Posições dos candidatos por</span><select id="rankmetric"><option value="avg">Média simples</option><option value="wavg">Média ponderada</option>' + AREAS.map(([k, l]) => `<option value="${k}">${l}</option>`).join('') + '</select></label>';
 $('weights').addEventListener('input', () => {
   renderCards(); if (lastStats.length) renderStats(lastStats);
-  if ($('sort').value.startsWith('wavg') || $('rankmetric').value === 'wavg') { pageOff = 0; requestPage(); } // order and ranks depend on the weights
+  if (sortValue.startsWith('wavg') || $('rankmetric').value === 'wavg') { pageOff = 0; requestPage(); } // order and ranks depend on the weights
 });
 $('statop').innerHTML = OPS.map(([v, l]) => `<option value="${v}">Destaque: ${l}</option>`).join('');
 $('statop').onchange = () => renderStats(lastStats);
@@ -328,7 +336,14 @@ $('hittable').addEventListener('click', (e) => { // a clicked hit count, minimum
   const id = hits ? HIT_FILTERS[k][0] : AREAS[k][0], lo = hits ? v : Math.max(0, +(v - 0.05).toFixed(2)), hi = hits ? v : +(v + 0.05).toFixed(2); // scores are stored as float32 with one decimal: match the rounded value
   $(id + '_lo').value = lo; $(id + '_hi').value = hi; countActive(); schedule();
 });
-$('sort').onchange = () => { pageOff = 0; requestPage(); };
+$('sortbtn').onclick = () => $('sortmenu').classList.toggle('open');
+$('sortlist').addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.v === undefined) { b.parentElement.classList.toggle('open'); return; } // a group or field: open its submenu (touch screens)
+  sortValue = b.dataset.v; $('sortbtn').textContent = SORT_LABEL[sortValue]; $('sortmenu').classList.remove('open'); pageOff = 0; requestPage();
+});
+document.addEventListener('click', (e) => { if (!e.target.closest('#sortmenu')) $('sortmenu').classList.remove('open'); });
+$('sortmenu').addEventListener('keydown', (e) => { if (e.key === 'Escape') { $('sortmenu').classList.remove('open'); $('sortbtn').focus(); } });
 $('rankmetric').onchange = () => { pageOff = 0; requestPage(); };
 $('prev').onclick = () => { pageOff = Math.max(0, pageOff - PAGE); requestPage(); };
 $('next').onclick = () => { pageOff += PAGE; requestPage(); };

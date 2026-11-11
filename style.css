@@ -206,3 +206,16 @@ details > .weights { margin:16px 18px 18px; } /* needs the extra specificity: .w
 
 /* state ranking: same hover feel as the municipality ranking */
 .rank li, .mrank li { border-radius:6px; transition:background .15s; } .rank li { padding:4px 6px; } .rank li:hover { background:#ffffff0d; } .rank li.sel span { color:#81c784; }
+
+/* Cascading sort menu (Médias / Notas / Acertos > field > Maior / Menor) */
+.menu { position:relative; float:right; font-size:17px; font-weight:400; } .menu button { float:none; font-size:inherit; }
+.menu-btn { display:flex; align-items:center; gap:14px; padding:6px 14px; }
+.menu-btn::after { content:""; width:8px; height:8px; border:solid var(--mut); border-width:0 2px 2px 0; translate:0 -2px; rotate:45deg; }
+.menu-list, .menu-list ul { list-style:none; margin:0; padding:6px; min-width:190px; border:1px solid var(--line); border-radius:var(--r); background:var(--card); box-shadow:0 10px 28px #000a; }
+.menu-list { display:none; position:absolute; right:0; top:100%; margin-top:4px; z-index:10; } .menu.open > .menu-list { display:block; }
+.menu li { position:relative; }
+.menu li > button { display:flex; align-items:center; justify-content:space-between; gap:16px; width:100%; padding:8px 12px; border:0; border-radius:6px; background:none; color:var(--fg); text-align:left; cursor:pointer; }
+.menu li > button:hover, .menu li:focus-within > button, .menu li.open > button { background:#ffffff14; }
+.menu .sub > button::after { content:""; width:7px; height:7px; border:solid var(--mut); border-width:0 0 2px 2px; rotate:45deg; }
+.menu .sub > ul { display:none; position:absolute; right:100%; top:-7px; }
+.menu .sub:hover > ul, .menu .sub:focus-within > ul, .menu .sub.open > ul { display:block; }
