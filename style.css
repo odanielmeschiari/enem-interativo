@@ -184,5 +184,5 @@ dialog { width:min(1100px, 96vw); max-height:92vh; overflow:auto; background:var
 .icon { display:grid; place-items:center; width:44px; height:44px; padding:0; }
 .icon i, .wipe i { display:block; background:currentColor; -webkit-mask:var(--ic) center / contain no-repeat; mask:var(--ic) center / contain no-repeat; }
 .icon i { width:24px; height:24px; } .icon:hover { border-color:#ff9a9a; color:#ff9a9a; }
-.wipe { display:flex; align-items:center; justify-content:center; gap:10px; width:100%; height:44px; border-color:#7a3a40; background:#3a2a2d; color:#ffb4b4; font-weight:600; }
-.wipe:hover { background:#4a3033; } .wipe i { width:22px; height:22px; }
+.wipe { display:flex; align-items:center; justify-content:center; gap:10px; width:100%; height:44px; border:0; background:#ffb9b9; color:#4a1015; font-weight:600; }
+.wipe:hover { background:#ffcfcf; } .wipe i { width:22px; height:22px; }
