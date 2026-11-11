@@ -204,3 +204,4 @@ details > :not(summary) { margin-left:18px; margin-right:18px; } details > :last
 [data-f] { cursor:pointer; } [data-f]:hover { background:#ffffff26; }
 
 input[type=number] { appearance:textfield; -moz-appearance:textfield; } input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer-spin-button { -webkit-appearance:none; margin:0; }
+details > .weights { margin:16px 18px 18px; } /* needs the extra specificity: .weights sets its own margin */
