@@ -65,7 +65,7 @@ h2 select { float:right; font-size:15px; }
 @media (max-width:900px) { .statgrid { grid-template-columns:1fr 1fr; } .hero { grid-row:auto; } }
 
 .cards { display:grid; grid-template-columns:repeat(auto-fill, minmax(370px,1fr)); gap:24px; }
-.cand { padding:16px; background:#3b3b42; border-radius:var(--r); transition:transform .15s; }
+.cand { padding:16px; background:#45454d; border-radius:var(--r); transition:transform .15s; }
 .cand .head { display:flex; justify-content:space-between; align-items:baseline; gap:8px; } .cand .head span { color:var(--mut); font-size:15px; text-align:right; }
 .tags { display:flex; flex-wrap:wrap; justify-content:center; gap:4px; margin:8px 0; min-height:22px; } .tags i { font-style:normal; font-size:15px; padding:2px 8px; background:#a8d9aa; color:#16311a; border-radius:4px; }
 .tags i.warn { background:#ffb9b9; color:#4a1015; }
@@ -91,6 +91,7 @@ h2 select { float:right; font-size:15px; }
 .tile { flex:1; min-width:0; display:grid; gap:4px; text-align:center; } .tile small { color:var(--mut); font-size:13px; }
 .dot { height:54px; display:grid; place-items:center; font-weight:700; font-size:20px; background:hsl(var(--h) 60% 32%); }
 .dot.off { background:#424242; color:var(--mut); }
+.tile:first-child .dot { border-radius:var(--r) 0 0 var(--r); } .tile:last-child .dot { border-radius:0 var(--r) var(--r) 0; } /* round the whole strip, not each score */
 h1, h2, h3, h4, .big, .mean, .avgs b { font-family:var(--head); }
 button, input, select, .stat p, .cand, .rank, .dot, .weights, #legend, #ms, .pager { font-family:var(--ui); }
 button, input, select { font-size:17px; } button { white-space:nowrap; } label { font-size:18px; }
