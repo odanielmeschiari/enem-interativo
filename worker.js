@@ -294,7 +294,7 @@ function filter(q) {
   matchN = count; sortedIdx = null;
   const nu = ufNames.length, pm = [], pmn = [], pmm = [];
   for (let g = 0; g < dicts[1].names.length; g++) if (mcn[g]) { pm.push(g); pmn.push(mcn[g]); pmm.push(mcp[g] ? mcs[g] / mcp[g] : null); }
-  const hitStats = Array.from({ length: 5 }, (_, k) => { const c = hitN[k], hist = k === 4 ? totalHitHist : hitHist, off = k === 4 ? 0 : k * 46, end = k === 4 ? 181 : 46; let med = null, cum = 0; if (c) for (let v = 0; v < end; v++) { cum += hist[off + v]; if (cum >= Math.ceil(c / 2)) { med = v; break; } } return { n: c, mean: c ? hitSum[k] / c : null, median: med, min: c ? hitMin[k] : null, max: c ? hitMax[k] : null }; });
+  const hitStats = Array.from({ length: 5 }, (_, k) => { const c = hitN[k], hist = k === 4 ? totalHitHist : hitHist, off = k === 4 ? 0 : k * 46, end = k === 4 ? 181 : 46; let med = null, cum = 0; if (c) for (let v = 0; v < end; v++) { cum += hist[off + v]; if (cum >= Math.ceil(c / 2)) { med = v; break; } } let ss = 0; if (c) for (let v = 0; v < end; v++) ss += hist[off + v] * (v - hitSum[k] / c) ** 2; return { n: c, sd: c ? Math.sqrt(ss / c) : null, mean: c ? hitSum[k] / c : null, median: med, min: c ? hitMin[k] : null, max: c ? hitMax[k] : null }; });
   const simpleStats = count ? summarize(0, [simpleSum], [simpleSq], [count], [simpleMin], [simpleMax], simpleHist) : { n: 0 };
   const hitScore = Array.from({ length: 4 }, (_, k) => Array.from({ length: 46 }, (_, h) => { const j = k * 46 + h; return hs[j] ? [hs[j], hmin[j], hsum[j] / hs[j], hmax[j]] : null; })); // [area][hits] -> [n, min, mean, max]
   postMessage({ t: 'result', id: q.id, count, total: n, hitStats, simpleStats, hitScore, ms: +(performance.now() - t0).toFixed(1), ufs: ufNames,

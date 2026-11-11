@@ -181,7 +181,7 @@ function renderPage(m) {
   $('pageinfo').textContent = m.total ? `${fmt(pageOff + 1)}–${fmt(pageOff + m.rows.length)} de ${fmt(m.total)}` : '';
   $('prev').disabled = pageOff === 0; $('next').disabled = pageOff + PAGE >= m.total;
 }
-const OPS = [['mean', 'Média', 'média'], ['med', 'Mediana', 'mediana'], ['max', 'Maior nota', 'máx'], ['min', 'Menor nota', 'mín'], ['p25', '1º quartil', '1º quartil'], ['p75', '3º quartil', '3º quartil'], ['sd', 'Desvio padrão', 'desvio']];
+const OPS = [['mean', 'Média', 'média'], ['med', 'Mediana', 'mediana'], ['max', 'Maior nota', 'máx'], ['min', 'Menor nota', 'mín'], ['sd', 'Desvio padrão', 'desvio']];
 let lastStats = [], lastCount = 0, lastSimpleStats = null;
 function renderStats(st, hitStats = lastHitStats, simpleStats = lastSimpleStats) {
   lastStats = st; lastHitStats = hitStats; lastSimpleStats = simpleStats;
@@ -190,8 +190,9 @@ function renderStats(st, hitStats = lastHitStats, simpleStats = lastSimpleStats)
   const summary = `<div class="stats-summary"><div class="summary-copy"><small>RESUMO DO RECORTE</small><h3>Média geral dos candidatos</h3><p>Considera as cinco áreas. Ausências contam como nota zero.</p></div>` +
     `<div class="summary-values"><div><span>Média simples</span><b>${num(avg)}</b></div><div><span>Média ponderada</span><b>${num(wavg)}</b></div></div></div>`;
   const hitLabels = ['Natureza', 'Humanas', 'Linguagens', 'Matemática', 'Total'];
-  const hits = hitStats.map((h, i) => `<article class="stat hitstat"><h4>${hitLabels[i]}</h4><div class="stat-primary">${h.n ? f1(h.mean) : '—'}<small>média de acertos</small></div>` +
-    (h.n ? `<div class="hit-details"><span>Mediana <b>${h.median}</b></span><span>Faixa <b>${h.min}–${h.max}</b></span></div><small class="stat-foot">${fmt(h.n)} candidatos${i === 4 ? ' com as quatro áreas' : ''}</small>` : '<p class="mut">Sem dados completos</p>') + '</article>').join('');
+  const hv = (h, o) => h[o === 'med' ? 'median' : o]; // the hit stats call the median "median"
+  const hits = hitStats.map((h, i) => `<article class="stat hitstat"><h4>${hitLabels[i]}</h4><div class="stat-primary">${h.n ? f1(hv(h, op)) : '—'}<small>acertos (${hi[2]})</small></div>` +
+    (h.n ? `<div class="hit-details">${OPS.filter((o) => o[0] !== op).map((o) => `<span>${o[2]} <b>${f1(hv(h, o[0]))}</b></span>`).join('')}</div><small class="stat-foot">${fmt(h.n)} candidatos${i === 4 ? ' com as quatro áreas' : ''}</small>` : '<p class="mut">Sem dados completos</p>') + '</article>').join('');
   const scores = [...st, simpleStats].map((s, k) => {
     const isSimple = k === st.length, label = isSimple ? 'Média simples' : AREAS[k][1];
     if (!s || !s.n) return `<article class="stat scorestat${isSimple ? ' simple-average' : ''}"><div class="score-head"><h4>${label}</h4></div><p class="mut">Sem dados</p></article>`;
