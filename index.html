@@ -10,8 +10,8 @@
 <header><h1>Análise Estatística do ENEM</h1></header>
 <main>
   <section id="load" class="card">
-    <h2>1. Dados (escolha o CSV do ENEM; ele fica salvo para a próxima vez)</h2>
-    <input type="file" id="file" accept=".csv">
+    <h2>Escolher a base</h2>
+    <label class="upload"><input type="file" id="file" accept=".csv"><i></i><span>Escolher o arquivo CSV</span></label>
     <progress id="bar" value="0" max="1" hidden></progress>
     <p id="status">Nenhum arquivo carregado.</p>
     <button id="usecache" hidden>Carregar dados salvos</button>
@@ -20,24 +20,49 @@
   </section>
   <div id="work" hidden>
     <section class="card">
-      <h2>2. Filtros <button id="clear">Limpar tudo</button></h2>
+      <h2>Filtros <button id="clear">Limpar tudo</button></h2>
       <form id="f" onsubmit="return false">
-        <h3>Filtros prontos</h3>
-        <div id="presets" class="chips"></div>
-        <div class="chips opt"><label><input type="checkbox" class="keep" id="nofalta">Ocultar candidatos com faltas</label></div>
-        <h3>Faltou em</h3>
-        <div class="chips" id="faltou"><label><input type="checkbox" class="keep" value="TP_PRESENCA_CH,TP_PRESENCA_LC">Dia 1: Humanas, Linguagens e Redação</label><label><input type="checkbox" class="keep" value="TP_PRESENCA_CN,TP_PRESENCA_MT">Dia 2: Matemática e Natureza</label></div>
-        <h3>Município da prova</h3>
-        <div class="ac"><input type="search" id="mq" placeholder="Digite o nome de um município…" autocomplete="off"><div id="sug"></div></div>
-        <div id="mchips" class="chips"></div>
-        <h3>Disciplinas, médias e acertos (mínimo e máximo)</h3>
-        <div id="scores" class="scores"></div>
-        <h3>Competências da redação (mínimo e máximo)</h3>
-        <div id="competencies" class="scores"></div>
-        <h3>Identificação (valor exato)</h3>
-        <label>Nº sequencial <input type="number" id="NU_SEQUENCIAL" min="0"></label>
-        <label>Código da escola <input type="number" id="CO_ESCOLA" min="0"></label>
-        <div id="groups"></div>
+        <div class="toggles"><label><input type="checkbox" id="nofalta">Ocultar candidatos com faltas</label></div>
+        <details>
+          <summary>Presença <span class="n"></span></summary>
+          <h3>Situação em todas as provas</h3>
+          <div class="toggles" id="g_pres"></div>
+          <h3>Faltou no dia</h3>
+          <div class="toggles" id="faltou"><label><input type="checkbox" value="TP_PRESENCA_CH,TP_PRESENCA_LC">Dia 1: Humanas, Linguagens e Redação</label><label><input type="checkbox" value="TP_PRESENCA_CN,TP_PRESENCA_MT">Dia 2: Matemática e Natureza</label></div>
+        </details>
+        <details>
+          <summary>Desempenho <span class="n"></span></summary>
+          <h3>Notas TRI (mínimo e máximo)</h3>
+          <div id="tri" class="scores"></div>
+          <h3>Redação (mínimo e máximo)</h3>
+          <div id="essay" class="scores"></div>
+          <h3>Situação da redação</h3>
+          <div class="toggles" id="g_red"></div>
+          <h3>Acertos (mínimo e máximo)</h3>
+          <div id="hits" class="scores"></div>
+        </details>
+        <details>
+          <summary>Escola <span class="n"></span></summary>
+          <h3>Dependência administrativa</h3>
+          <div class="toggles" id="g_dep"></div>
+          <h3>Localização</h3>
+          <div class="toggles" id="g_loc"></div>
+          <h3>Código da escola (valor exato)</h3>
+          <input type="number" id="CO_ESCOLA" min="0">
+        </details>
+        <details>
+          <summary>Prova <span class="n"></span></summary>
+          <h3>Língua estrangeira</h3>
+          <div class="toggles" id="g_lin"></div>
+          <h3>Município da prova</h3>
+          <div class="ac"><input type="search" id="mq" placeholder="Digite o nome de um município…" autocomplete="off"><div id="sug"></div></div>
+          <div id="mchips" class="chips"></div>
+        </details>
+        <details>
+          <summary>Candidato <span class="n"></span></summary>
+          <h3>Nº sequencial (valor exato)</h3>
+          <input type="number" id="NU_SEQUENCIAL" min="0">
+        </details>
       </form>
     </section>
     <div class="grid">

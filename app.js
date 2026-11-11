@@ -6,14 +6,16 @@ const UF_BY_IBGE = { 11: 'RO', 12: 'AC', 13: 'AM', 14: 'RR', 15: 'PA', 16: 'AP',
 const AREAS = [['NU_NOTA_CN', 'Ciências da Natureza', 1000], ['NU_NOTA_CH', 'Ciências Humanas', 1000], ['NU_NOTA_LC', 'Linguagens e Códigos', 1000], ['NU_NOTA_MT', 'Matemática', 1000], ['NU_NOTA_REDACAO', 'Redação', 1000]];
 const COMPETENCIES = [1, 2, 3, 4, 5].map((i) => ['NU_NOTA_COMP' + i, 'Competência ' + i, 200]);
 const HIT_FILTERS = [['ACERTOS_CN', 'Acertos: Natureza', 45], ['ACERTOS_CH', 'Acertos: Humanas', 45], ['ACERTOS_LC', 'Acertos: Linguagens', 45], ['ACERTOS_MT', 'Acertos: Matemática', 45]];
-const DISCIPLINE_FILTERS = [...AREAS, ['MEDIA_SIMPLES', 'Média simples', 1000], ...HIT_FILTERS, ['ACERTOS_TOTAL', 'Total de acertos', 180]];
-const FILTER_FIELDS = [...DISCIPLINE_FILTERS, ...COMPETENCIES];
+const TRI_FILTERS = [...AREAS.slice(0, 4), ['MEDIA_SIMPLES', 'Média simples', 1000]];
+const ESSAY_FILTERS = [AREAS[4], ...COMPETENCIES];
+const HITS_FILTERS = [...HIT_FILTERS, ['ACERTOS_TOTAL', 'Total de acertos', 180]];
+const FILTER_FIELDS = [...TRI_FILTERS, ...ESSAY_FILTERS, ...HITS_FILTERS];
 const GROUPS = [ // categorical filters; labels follow the ENEM data dictionary
-  { id: 'pres', title: 'Presença (em todas as provas)', keys: ['TP_PRESENCA_CN', 'TP_PRESENCA_CH', 'TP_PRESENCA_LC', 'TP_PRESENCA_MT'], opts: [[1, 'Presente'], [0, 'Faltou'], [2, 'Eliminado']] },
-  { id: 'lin', title: 'Língua estrangeira', keys: ['TP_LINGUA'], opts: [[0, 'Inglês'], [1, 'Espanhol']] },
-  { id: 'dep', title: 'Dependência administrativa da escola', keys: ['TP_DEPENDENCIA_ADM_ESC'], opts: [[1, 'Federal'], [2, 'Estadual'], [3, 'Municipal'], [4, 'Privada']] },
-  { id: 'loc', title: 'Localização da escola', keys: ['TP_LOCALIZACAO_ESC'], opts: [[1, 'Urbana'], [2, 'Rural']] },
-  { id: 'red', title: 'Situação da redação', keys: ['TP_STATUS_REDACAO'], opts: [[1, 'Sem problemas'], [2, 'Anulada'], [3, 'Cópia do texto motivador'], [4, 'Em branco'], [6, 'Fuga ao tema'], [7, 'Fuga do tipo textual'], [8, 'Texto insuficiente'], [9, 'Parte desconectada']] },
+  { id: 'pres', keys: ['TP_PRESENCA_CN', 'TP_PRESENCA_CH', 'TP_PRESENCA_LC', 'TP_PRESENCA_MT'], opts: [[1, 'Presente'], [0, 'Faltou'], [2, 'Eliminado']] },
+  { id: 'lin', keys: ['TP_LINGUA'], opts: [[0, 'Inglês'], [1, 'Espanhol']] },
+  { id: 'dep', keys: ['TP_DEPENDENCIA_ADM_ESC'], opts: [[1, 'Federal'], [2, 'Estadual'], [3, 'Municipal'], [4, 'Privada']] },
+  { id: 'loc', keys: ['TP_LOCALIZACAO_ESC'], opts: [[1, 'Urbana'], [2, 'Rural']] },
+  { id: 'red', keys: ['TP_STATUS_REDACAO'], opts: [[1, 'Sem problemas'], [2, 'Anulada'], [3, 'Cópia do texto motivador'], [4, 'Em branco'], [6, 'Fuga ao tema'], [7, 'Fuga do tipo textual'], [8, 'Texto insuficiente'], [9, 'Parte desconectada']] },
 ];
 let worker, seq = 0, timer, t0, munis = [], muniSel = new Map(), ufSel = new Set();
 const f1 = (x) => x.toLocaleString('pt-BR', { maximumFractionDigits: 1 });
@@ -79,44 +81,7 @@ function renderMap(m) {
   $('legend').innerHTML = ok.length ? `<span>${mean ? Math.round(lo) : compact(lo)}</span><i></i><span>${mean ? Math.round(hi) : compact(hi)}</span>` : '';
 }
 const PAGE = 12, LBL = (id) => Object.fromEntries(GROUPS.find((g) => g.id === id).opts);
-const ALL = ['CN', 'CH', 'LC', 'MT', 'REDACAO'], atLeast = (n, ks = ALL) => Object.fromEntries(ks.map((k) => ['NU_NOTA_' + k, [n, '']]));
-const PRESETS = [
-  ['Redação nota 1000', { ranges: { NU_NOTA_REDACAO: [1000, ''] } }],
-  ['Redação ≥ 900', { ranges: { NU_NOTA_REDACAO: [900, ''] } }],
-  ['Matemática ≥ 850', { ranges: { NU_NOTA_MT: [850, ''] } }],
-  ['Natureza e Matemática ≥ 800', { ranges: atLeast(800, ['CN', 'MT']) }],
-  ['Todas as notas ≥ 700', { ranges: atLeast(700) }],
-  ['Todas as notas ≥ 800', { ranges: atLeast(800) }],
-  ['Escolas federais', { groups: { dep: [1] } }],
-  ['Escolas públicas', { groups: { dep: [1, 2, 3] } }],
-  ['Escolas públicas com redação ≥ 900', { ranges: { NU_NOTA_REDACAO: [900, ''] }, groups: { dep: [1, 2, 3] } }],
-  ['Escolas privadas urbanas', { groups: { dep: [4], loc: [1] } }],
-  ['Escolas rurais', { groups: { loc: [2] } }],
-  ['Fez prova de espanhol', { groups: { lin: [1] } }],
-  ['Redação zerada (presentes)', { ranges: { NU_NOTA_REDACAO: [0, 0] }, groups: { pres: [1] } }],
-  ['Redação anulada ou em branco', { groups: { red: [2, 4] } }],
-  ['Faltou em todas as provas', { groups: { pres: [0] } }],
-  ['Eliminados', { groups: { pres: [2] } }],
-];
 let pageOff = 0, pageTotal = 0;
-const active = new Set(); // indexes of the selected presets
-const markPresets = () => document.querySelectorAll('#presets button').forEach((b) => b.setAttribute('aria-pressed', active.has(+b.dataset.i)));
-function togglePreset(i) { // the form becomes the merge of all selected presets: score ranges intersect, chips of one group add up (OR, like the chips themselves)
-  active.has(i) ? active.delete(i) : active.add(i);
-  const kept = [...document.querySelectorAll('input.keep')], was = kept.map((x) => x.checked), R = {}, G = {};
-  $('f').reset(); kept.forEach((x, n) => { x.checked = was[n]; }); // the absence filters survive a preset change
-  for (const j of active) {
-    const p = PRESETS[j][1];
-    for (const [k, [lo, hi]] of Object.entries(p.ranges || {})) {
-      const r = R[k], his = [r && r[1], hi].filter((x) => x !== '' && x !== undefined);
-      R[k] = [Math.max(r ? r[0] : 0, lo), his.length ? Math.min(...his) : ''];
-    }
-    for (const [id, vals] of Object.entries(p.groups || {})) G[id] = [...new Set([...(G[id] || []), ...vals])];
-  }
-  for (const [k, [lo, hi]] of Object.entries(R)) { $(k + '_lo').value = lo; $(k + '_hi').value = hi; }
-  for (const [id, vals] of Object.entries(G)) for (const x of document.querySelectorAll(`#g_${id} input`)) x.checked = vals.includes(+x.value);
-  markPresets(); schedule();
-}
 function requestPage() {
   const [sort, dir] = $('sort').value.split(':');
   worker.postMessage({ t: 'page', id: seq, sort: sort || null, dir, w: W, offset: pageOff, limit: PAGE, rankKey: $('rankmetric').value });
@@ -254,13 +219,19 @@ function renderHitScore(h = hitScore) {
 function buildFilters() {
   const fields = (items) => items.map(([k, label, max]) =>
     `<div><span>${label}</span><input type="number" step="any" id="${k}_lo" min="0" max="${max}" placeholder="0"><input type="number" step="any" id="${k}_hi" min="0" max="${max}" placeholder="${max}"></div>`).join('');
-  $('scores').innerHTML = fields(DISCIPLINE_FILTERS);
-  $('competencies').innerHTML = fields(COMPETENCIES);
-  $('groups').innerHTML = GROUPS.map((g) => `<h3>${g.title}</h3><div class="chips" id="g_${g.id}">` +
-    g.opts.map(([v, l]) => `<label><input type="checkbox" value="${v}">${l}</label>`).join('') + '</div>').join('');
+  $('tri').innerHTML = fields(TRI_FILTERS);
+  $('essay').innerHTML = fields(ESSAY_FILTERS);
+  $('hits').innerHTML = fields(HITS_FILTERS);
+  for (const g of GROUPS) $('g_' + g.id).innerHTML = g.opts.map(([v, l]) => `<label><input type="checkbox" value="${v}">${l}</label>`).join('');
+}
+function countActive() { // how many filters are set in each collapsed section
+  for (const d of document.querySelectorAll('#f details')) {
+    const n = [...d.querySelectorAll('input:not(#mq)')].filter((x) => x.type === 'checkbox' ? x.checked : x.value !== '').length + (d.contains($('mchips')) ? muniSel.size : 0);
+    d.querySelector('.n').textContent = n || '';
+  }
 }
 function renderMunis() {
-  $('mchips').innerHTML = [...muniSel].map(([i, l]) => `<span class="chip" data-i="${i}">${l} ✕</span>`).join('');
+  $('mchips').innerHTML = [...muniSel].map(([i, l]) => `<span class="chip" data-i="${i}">${l} ✕</span>`).join(''); countActive();
 }
 function suggest() {
   const q = norm($('mq').value.trim());
@@ -288,7 +259,6 @@ function query() {
 }
 function run() { worker.postMessage({ t: 'filter', id: ++seq, ...query() }); }
 function schedule() { clearTimeout(timer); timer = setTimeout(run, 120); }
-function edit() { active.clear(); markPresets(); schedule(); } // a manual change to the form ends the preset highlight
 
 let cacheInfo = null, base = '';
 const setStatus = (s) => { base = s; $('status').textContent = s; };
@@ -341,8 +311,6 @@ function start(file) {
 }
 
 buildFilters(); buildMap();
-$('presets').innerHTML = PRESETS.map(([l], i) => `<button type="button" data-i="${i}">${l}</button>`).join('');
-$('presets').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) togglePreset(+b.dataset.i); });
 $('sort').innerHTML = '<option value="">Ordem do arquivo</option>' + [['avg', 'média simples'], ['wavg', 'média ponderada'], ...AREAS.map(([k, l]) => [k, l]), ['ACERTOS_CN', 'acertos em Natureza'], ['ACERTOS_CH', 'acertos em Humanas'], ['ACERTOS_LC', 'acertos em Linguagens'], ['ACERTOS_MT', 'acertos em Matemática'], ['ACERTOS_TOTAL', 'acertos totais']].flatMap(([k, l]) => [`<option value="${k}:desc">Maior ${l}</option>`, `<option value="${k}:asc">Menor ${l}</option>`]).join('');
 $('weights').innerHTML = '<div class="weight-heading"><b>Pesos da média ponderada</b><small>Faltas contam como nota zero.</small></div><div class="weight-inputs">' + TILES.map(([i, l]) => `<label><span>${l}</span><input type="number" min="0" step="any" value="1" data-i="${i}"></label>`).join('') + '</div><label class="rank-control" for="rankmetric"><span>Posições dos candidatos por</span><select id="rankmetric"><option value="avg">Média simples</option><option value="wavg">Média ponderada</option>' + AREAS.map(([k, l]) => `<option value="${k}">${l}</option>`).join('') + '</select></label>';
 $('weights').addEventListener('input', () => {
@@ -372,9 +340,9 @@ $('detail').addEventListener('close', () => { dseq++; $('dbody').innerHTML = '';
 $('usecache').onclick = () => { busy('Carregando dados salvos…'); worker.postMessage({ t: 'usecache' }); };
 $('delcache').onclick = () => worker.postMessage({ t: 'clearcache' });
 initWorker();
-$('f').addEventListener('input', (e) => { if (e.target.classList.contains('keep')) schedule(); else if (e.target.id !== 'mq') edit(); });
+$('f').addEventListener('input', (e) => { if (e.target.id !== 'mq') { countActive(); schedule(); } });
 $('mq').addEventListener('input', suggest);
 $('mq').addEventListener('keydown', (e) => { if (e.key === 'Enter') { const b = $('sug').querySelector('button'); if (b) addMuni(+b.dataset.i); } });
 $('sug').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) addMuni(+b.dataset.i); });
 $('mchips').addEventListener('click', (e) => { const c = e.target.closest('.chip'); if (c) { muniSel.delete(+c.dataset.i); renderMunis(); schedule(); } });
-$('clear').onclick = () => { $('f').reset(); muniSel.clear(); ufSel.clear(); renderMunis(); $('sug').innerHTML = ''; edit(); };
+$('clear').onclick = () => { $('f').reset(); muniSel.clear(); ufSel.clear(); renderMunis(); $('sug').innerHTML = ''; countActive(); schedule(); };
