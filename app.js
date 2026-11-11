@@ -89,10 +89,11 @@ function requestPage() {
 const TILES = [[3, 'Matemática'], [1, 'Humanas'], [2, 'Linguagens'], [0, 'Natureza'], [4, 'Redação']]; // [index in r.n, label]; same order as the weight inputs
 const hue = (x) => Math.round(120 * Math.min(1, Math.max(0, (x - 300) / 500))); // 300 or less = red, 800 or more = green
 let pageRows = [], W = [1, 1, 1, 1, 1], lastHitStats = [];
+let showW = false; // the weighted average exists only while "Mostrar média ponderada" is on
 function averages(n) { // a missing score (absence) counts as 0; the weighted one is null only if every weight is 0
   let s = 0, ws = 0, wt = 0;
-  for (let i = 0; i < n.length; i++) { const x = n[i] ?? 0; s += x; ws += W[i] * x; wt += W[i]; }
-  return [s / n.length, wt > 0 ? ws / wt : null];
+  for (let i = 0; i < n.length; i++) { const x = n[i] ?? 0; s += x; if (showW) { ws += W[i] * x; wt += W[i]; } }
+  return [s / n.length, showW && wt > 0 ? ws / wt : null];
 }
 function card(r, k) {
   const dep = LBL('dep'), loc = LBL('loc'), lin = LBL('lin'), red = LBL('red'), tags = [];
@@ -111,7 +112,7 @@ function card(r, k) {
   const hits = [1, 2, 0, 3].map((i) => `<span>${['Natureza', 'Humanas', 'Linguagens', 'Matemática'][i]} <b>${r.hits[i] === null ? '—' : r.hits[i] + '/45'}</b></span>`).join(''); // Humanas, Linguagens / Natureza, Matemática
   return `<div class="cand"${k === undefined ? '' : ` data-k="${k}"`}><div class="head"><b>Candidato ${r.id}</b><span>${r.muni || '—'} · ${r.uf || '—'}</span></div>` +
     `<div class="tags">${tags.filter(Boolean).map((t) => `<i>${t}</i>`).join('')}${warn.map((t) => `<i class="warn">${t}</i>`).join('')}</div>` +
-    `<div class="avgs"><div><small>Média simples</small><b>${num(avg)}</b></div><div><small>Média ponderada</small><b>${num(wavg)}</b></div><div class="hit-total"><small>Acertos totais</small><b>${totalHits === null ? '—' : fmt(totalHits)}</b><em>${totalHits === null ? 'incompleto' : 'de 180'}</em></div></div>` +
+    `<div class="avgs"><div><small>Média simples</small><b>${num(avg)}</b></div>${showW ? `<div><small>Média ponderada</small><b>${num(wavg)}</b></div>` : ''}<div class="hit-total"><small>Acertos totais</small><b>${totalHits === null ? '—' : fmt(totalHits)}</b><em>${totalHits === null ? 'incompleto' : 'de 180'}</em></div></div>` +
     `<div class="tiles">${TILES.map(tile).join('')}</div><div class="hits">${hits}</div>${rank}</div>`;
 }
 // Candidate detail: the answer sheet and the per-grader essay scores are not kept in memory; one CSV row is read on click.
@@ -188,7 +189,7 @@ function renderStats(st, hitStats = lastHitStats, simpleStats = lastSimpleStats)
   const op = $('statop').value, hi = OPS.find((o) => o[0] === op);
   const [avg, wavg] = averages(st.map((s) => s.n ? s.mean * s.n / lastCount : 0)); // overall: every matching candidate counts, absences as 0
   const summary = `<div class="stats-summary"><div class="summary-copy"><h3>Média geral dos candidatos</h3></div>` +
-    `<div class="summary-values"><div><span>Média simples</span><b>${num(avg)}</b></div><div><span>Média ponderada</span><b>${num(wavg)}</b></div></div></div>`;
+    `<div class="summary-values"><div><span>Média simples</span><b>${num(avg)}</b></div>${showW ? `<div><span>Média ponderada</span><b>${num(wavg)}</b></div>` : ''}</div></div>`;
   const hitLabels = ['Natureza', 'Humanas', 'Linguagens', 'Matemática', 'Total'];
   const hv = (h, o) => h[o === 'med' ? 'median' : o]; // the hit stats call the median "median"
   const hits = hitStats.map((h, i) => `<article class="stat hitstat"><h4>${hitLabels[i]}</h4><div class="stat-primary">${h.n ? f1(hv(h, op)) : '—'}<small>acertos (${hi[2]})</small></div>` +
@@ -313,15 +314,31 @@ function start(file) {
 
 buildFilters(); buildMap();
 const SHORT = ['Natureza', 'Humanas', 'Linguagens', 'Matemática', 'Redação'];
-const SORT_MENU = [['Médias', [['avg', 'Média simples'], ['wavg', 'Média ponderada']]], ['Notas', AREAS.map(([k], i) => [k, SHORT[i]])], ['Acertos', [...HIT_FILTERS.map(([k], i) => [k, SHORT[i]]), ['ACERTOS_TOTAL', 'Total']]]];
-const SORT_LABEL = { '': 'Ordem do arquivo' };
 let sortValue = ''; // "<field>:<desc|asc>", or '' for file order
+const SORT_LABEL = { '': 'Ordem do arquivo' };
 const sortLeaf = (v, t) => `<li><button type="button" data-v="${v}">${t}</button></li>`;
-$('sortlist').innerHTML = sortLeaf('', 'Ordem do arquivo') + SORT_MENU.map(([g, items]) => `<li class="sub"><button type="button" aria-haspopup="true">${g}</button><ul>` + items.map(([k, l]) => {
-  SORT_LABEL[k + ':desc'] = `${g} › ${l} › Maior`; SORT_LABEL[k + ':asc'] = `${g} › ${l} › Menor`;
-  return `<li class="sub"><button type="button" aria-haspopup="true">${l}</button><ul>${sortLeaf(k + ':desc', 'Maior')}${sortLeaf(k + ':asc', 'Menor')}</ul></li>`;
-}).join('') + '</ul></li>').join('');
-$('weights').innerHTML = '<div class="weight-heading"><b>Pesos da média ponderada</b></div><div class="weight-inputs">' + TILES.map(([i, l]) => `<label><span>${l}</span><input type="number" min="0" step="any" value="1" data-i="${i}"></label>`).join('') + '</div><label class="rank-control" for="rankmetric"><span>Posições dos candidatos por</span><select id="rankmetric"><option value="avg">Média simples</option><option value="wavg">Média ponderada</option>' + AREAS.map(([k, l]) => `<option value="${k}">${l}</option>`).join('') + '</select></label>';
+function buildSortMenu() { // "Média ponderada" is offered only while it is switched on
+  const menu = [['Médias', [['avg', 'Média simples'], ...(showW ? [['wavg', 'Média ponderada']] : [])]], ['Notas', AREAS.map(([k], i) => [k, SHORT[i]])], ['Acertos', [...HIT_FILTERS.map(([k], i) => [k, SHORT[i]]), ['ACERTOS_TOTAL', 'Total']]]];
+  $('sortlist').innerHTML = sortLeaf('', 'Ordem do arquivo') + menu.map(([g, items]) => `<li class="sub"><button type="button" aria-haspopup="true">${g}</button><ul>` + items.map(([k, l]) => {
+    SORT_LABEL[k + ':desc'] = `${g} › ${l} › Maior`; SORT_LABEL[k + ':asc'] = `${g} › ${l} › Menor`;
+    return `<li class="sub"><button type="button" aria-haspopup="true">${l}</button><ul>${sortLeaf(k + ':desc', 'Maior')}${sortLeaf(k + ':asc', 'Menor')}</ul></li>`;
+  }).join('') + '</ul></li>').join('');
+  $('sortbtn').textContent = SORT_LABEL[sortValue];
+}
+buildSortMenu();
+$('weights').innerHTML = '<div id="wbox" hidden><div class="weight-heading"><b>Pesos da média ponderada</b></div><div class="weight-inputs">' + TILES.map(([i, l]) => `<label><span>${l}</span><input type="number" min="0" step="any" value="1" data-i="${i}"></label>`).join('') + '</div></div><label class="rank-control" for="rankmetric"><span>Posições dos candidatos por</span><select id="rankmetric"></select></label>';
+function buildRankOptions() {
+  const cur = $('rankmetric').value;
+  $('rankmetric').innerHTML = [['avg', 'Média simples'], ...(showW ? [['wavg', 'Média ponderada']] : []), ...AREAS].map(([k, l]) => `<option value="${k}">${l}</option>`).join('');
+  $('rankmetric').value = [...$('rankmetric').options].some((o) => o.value === cur) ? cur : 'avg';
+}
+buildRankOptions();
+$('showw').onchange = () => {
+  showW = $('showw').checked; $('wbox').hidden = !showW;
+  if (!showW && sortValue.startsWith('wavg')) sortValue = '';
+  buildSortMenu(); buildRankOptions(); renderCards(); if (lastStats.length) renderStats(lastStats);
+  pageOff = 0; requestPage(); // order and ranks may have changed
+};
 $('weights').addEventListener('input', () => {
   renderCards(); if (lastStats.length) renderStats(lastStats);
   if (sortValue.startsWith('wavg') || $('rankmetric').value === 'wavg') { pageOff = 0; requestPage(); } // order and ranks depend on the weights

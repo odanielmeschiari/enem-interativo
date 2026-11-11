@@ -49,10 +49,9 @@ select:focus-visible { outline:2px solid var(--acc); outline-offset:2px; }
   ::picker(select) { margin-top:4px; padding:6px; border:1px solid var(--line); border-radius:var(--r); background:var(--card); box-shadow:0 10px 28px #000a; }
   option { display:flex; align-items:center; gap:10px; padding:8px 12px; border-radius:6px; color:var(--fg); font:inherit; cursor:pointer; }
   option:hover, option:focus-visible { background:#ffffff14; }
-  option:checked { background:#43a04733; }
-  option::checkmark { order:1; margin-left:auto; color:var(--sel); }
+  option::checkmark { display:none; }
 }
-h2 select { float:right; font-size:15px; }
+h2 select { float:right; }
 #legend { display:flex; align-items:center; gap:8px; margin-top:10px; font-size:14px; color:var(--mut); }
 #legend i { flex:1; height:8px; background:linear-gradient(90deg, hsl(135 40% 16%), hsl(135 60% 54%)); }
 .statgrid { display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:12px; }
@@ -104,7 +103,7 @@ body::before { content:""; position:fixed; inset:0; z-index:-1; background:linea
 .hits b, .ranks b { color:var(--fg); }
 
 .hit-total b { color:#8fd8ff !important; } .hit-total em { display:block; color:var(--mut); font-size:13px; font-style:normal; }
-.hitstat { min-width:0; } .hitstat .mean { font-size:32px; } #weights select { font:inherit; }
+.hitstat { min-width:0; } .hitstat .mean { font-size:32px; }
 
 
 /* Result statistics: separate controls, overview, answer counts, and score distributions. */
@@ -219,3 +218,7 @@ details > .weights { margin:16px 18px 18px; } /* needs the extra specificity: .w
 .menu .sub > button::after { content:""; width:7px; height:7px; border:solid var(--mut); border-width:0 0 2px 2px; rotate:45deg; }
 .menu .sub > ul { display:none; position:absolute; right:100%; top:-7px; }
 .menu .sub:hover > ul, .menu .sub:focus-within > ul, .menu .sub.open > ul { display:block; }
+
+/* Selects share the sort menu's look: same size and weight as its trigger and list */
+select, option { font-size:17px; font-weight:400; }
+summary + .toggles { margin-top:16px; } #wbox[hidden] { display:none; } #wbox { display:grid; gap:10px; }
