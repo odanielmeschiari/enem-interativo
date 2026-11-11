@@ -291,7 +291,7 @@ function filter(q) {
     if (simple < simpleMin) simpleMin = simple; if (simple > simpleMax) simpleMax = simple;
     simpleHist[Math.min(1000, (simple + 0.5) | 0)]++;
   }
-  matchN = count; sortedIdx = null;
+  matchN = count; sortedIdx = null; matchMask = null;
   const nu = ufNames.length, pm = [], pmn = [], pmm = [];
   for (let g = 0; g < dicts[1].names.length; g++) if (mcn[g]) { pm.push(g); pmn.push(mcn[g]); pmm.push(mcp[g] ? mcs[g] / mcp[g] : null); }
   const hitStats = Array.from({ length: 5 }, (_, k) => { const c = hitN[k], hist = k === 4 ? totalHitHist : hitHist, off = k === 4 ? 0 : k * 46, end = k === 4 ? 181 : 46; let med = null, cum = 0; if (c) for (let v = 0; v < end; v++) { cum += hist[off + v]; if (cum >= Math.ceil(c / 2)) { med = v; break; } } let ss = 0; if (c) for (let v = 0; v < end; v++) ss += hist[off + v] * (v - hitSum[k] / c) ** 2; return { n: c, sd: c ? Math.sqrt(ss / c) : null, mean: c ? hitSum[k] / c : null, median: med, min: c ? hitMin[k] : null, max: c ? hitMax[k] : null }; });
@@ -349,19 +349,46 @@ function scorer(q) { // sort by an exam score, answer count, or mean
     return t ? s / t : NaN;
   };
 }
-let sortedKey = '', sortedIdx = null; // all matches in sort order, reused while paging
-function sortedMatches(q) { // key = score in 0.001 steps, packed with the row index so one native typed-array sort orders everything (ties: file order)
+let sortedKey = '', sortedIdx = null, matchMask = null; // all matches in sort order, reused while paging
+// Every sort order is built ONCE for the whole file, in the background, and filtered by a scan when asked for:
+// changing the sort never sorts again. Each order is ascending with missing values last; descending reads it backwards.
+const orders = new Map(), WARM_KEYS = ['avg', ...SK, ...HIT_KEYS, TOTAL_HITS];
+let warmGen = 0, warming = false;
+const NB = 1000003, MISSING = NB - 1; // scores are bucketed in 0.001 steps (max 1000 -> 1,000,000)
+function buildOrder(val) { // counting sort: O(rows), stable (ties keep file order)
+  const keys = new Int32Array(n), start = new Uint32Array(NB + 1);
+  let miss = 0;
+  for (let i = 0; i < n; i++) { const x = val(i), k = x === x ? Math.min(1000000, Math.round(x * 1000)) : MISSING; keys[i] = k; start[k + 1]++; if (k === MISSING) miss++; }
+  for (let b = 0; b < NB; b++) start[b + 1] += start[b];
+  const order = new Int32Array(n);
+  for (let i = 0; i < n; i++) order[start[keys[i]]++] = i;
+  return { order, valid: n - miss };
+}
+function orderFor(sort, w) {
+  const key = sort === 'wavg' ? 'wavg|' + w.join(',') : sort === 'MEDIA_SIMPLES' ? 'avg' : sort;
+  let o = orders.get(key);
+  if (o) return o;
+  if (sort === 'wavg') for (const k of orders.keys()) if (k.startsWith('wavg|')) orders.delete(k); // only the current weights stay cached
+  o = buildOrder(scorer({ sort, w })); orders.set(key, o);
+  return o;
+}
+async function warmOrders() { // one order per turn of the event loop, so filtering and paging are never stuck behind it
+  if (warming) return;
+  warming = true; const gen = warmGen;
+  for (const k of WARM_KEYS) { if (gen !== warmGen || !ready) break; orderFor(k); await new Promise((r) => setTimeout(r)); }
+  warming = false;
+}
+function resetOrders() { orders.clear(); sortedIdx = null; sortedKey = ''; matchMask = null; warmGen++; }
+function sortedMatches(q) {
   const key = [q.sort, q.dir, q.w].join('|');
   if (key === sortedKey && sortedIdx) return sortedIdx;
-  const val = scorer(q), asc = q.dir === 'asc', R = 67108864, packed = new Float64Array(matchN); // R = 2^26 > row count
-  for (let j = 0; j < matchN; j++) {
-    const i = matchIdx[j], x = val(i), r = x === x ? Math.round(x * 1000) : 2e6; // missing values always sort last
-    packed[j] = (x !== x || asc ? r : 1e6 - r) * R + i;
-  }
-  packed.sort();
-  sortedIdx = new Int32Array(matchN); sortedKey = key;
-  for (let j = 0; j < matchN; j++) sortedIdx[j] = packed[j] % R;
-  return sortedIdx;
+  const { order, valid } = orderFor(q.sort, q.w);
+  if (!matchMask) { matchMask = new Uint8Array(n); for (let j = 0; j < matchN; j++) matchMask[matchIdx[j]] = 1; }
+  const out = new Int32Array(matchN); let c = 0;
+  if (q.dir === 'asc') for (let p = 0; p < n; p++) { const i = order[p]; if (matchMask[i]) out[c++] = i; }
+  else { for (let p = valid - 1; p >= 0; p--) { const i = order[p]; if (matchMask[i]) out[c++] = i; } for (let p = valid; p < n; p++) { const i = order[p]; if (matchMask[i]) out[c++] = i; } } // missing values stay last
+  sortedIdx = out; sortedKey = key;
+  return out;
 }
 function page(q) { // unsorted: file order; sorted: every match ordered by one score, answer count or mean
   const src = q.sort ? sortedMatches(q) : matchIdx, idx = src.subarray(q.offset, Math.min(matchN, q.offset + q.limit));
@@ -380,13 +407,14 @@ function page(q) { // unsorted: file order; sorted: every match ordered by one s
 }
 self.onmessage = async ({ data }) => {
   try {
-    if (data.t === 'load') await load(data.file);
+    if (data.t === 'load') { resetOrders(); await load(data.file); }
     else if (data.t === 'filter' && ready) filter(data);
     else if (data.t === 'page' && ready) page(data);
     else if (data.t === 'detail') await detail(data);
     else if (data.t === 'init') { let meta = null; try { meta = await cacheMeta(); } catch {} postMessage({ t: meta ? 'cache' : 'nocache', meta }); }
-    else if (data.t === 'usecache') await loadCache();
+    else if (data.t === 'usecache') { resetOrders(); await loadCache(); }
     else if (data.t === 'clearcache') { await clearCache(); postMessage({ t: 'cleared' }); }
-    else if (data.t === 'release') { cols = null; matchIdx = null; sortedIdx = null; offs = null; headerText = null; n = 0; ready = false; postMessage({ t: 'released' }); }
+    else if (data.t === 'release') { resetOrders(); cols = null; matchIdx = null; offs = null; headerText = null; n = 0; ready = false; postMessage({ t: 'released' }); }
   } catch (err) { postMessage({ t: 'error', msg: String(err.message || err) }); }
+  if (ready) warmOrders(); // idle time goes to pre-building every sort order
 };
