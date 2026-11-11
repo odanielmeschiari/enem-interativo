@@ -63,6 +63,43 @@ function renderMuniRank() { // [municipality index, candidates, value] sorted by
   $('mpage').textContent = muniRows.length ? `${from + 1}–${Math.min(from + MPAGE, muniRows.length)} de ${fmt(muniRows.length)} municípios` : 'Nenhum município com esse mínimo de candidatos';
   $('mprev').disabled = muniPage === 0; $('mnext').disabled = muniPage >= pages - 1;
 }
+const SPAGE = 10; let schools = [], schoolRows = [], schoolPage = 0;
+const DEP_NAMES = { 1: 'Federal', 2: 'Estadual', 3: 'Municipal', 4: 'Privada' };
+function renderSchoolRank() {
+  const m = lastResult;
+  if (!m || !schools.length || !m.perSchool || !m.perSchool.length) {
+    schoolRows = [];
+    $('srank').innerHTML = '';
+    $('spage').textContent = !schools.length ? 'Sem dados de escolas carregados' : 'Nenhuma escola com esse filtro';
+    $('sprev').disabled = true;
+    $('snext').disabled = true;
+    return;
+  }
+  const mean = +$('metric').value >= 0, min = Math.max(1, +$('smin').value || 1);
+  schoolRows = [];
+  m.perSchool.forEach((s, k) => {
+    const c = m.perSchoolN[k], v = mean ? m.perSchoolMean[k] : c;
+    if (c >= min && v) schoolRows.push([s, c, v]);
+  });
+  schoolRows.sort((a, b) => b[2] - a[2]);
+  const pages = Math.max(1, Math.ceil(schoolRows.length / SPAGE));
+  schoolPage = Math.min(schoolPage, pages - 1);
+  const from = schoolPage * SPAGE, top = schoolRows.length ? schoolRows[0][2] : 1;
+  const activeSchool = $('CO_ESCOLA').value;
+  $('srank').innerHTML = schoolRows.slice(from, from + SPAGE).map(([s, c, v], j) => {
+    const sch = schools[s];
+    if (!sch) return '';
+    const [code, muni, uf, dep] = sch;
+    const isSel = activeSchool && activeSchool === String(code);
+    const depLabel = DEP_NAMES[dep] ? `Escola ${DEP_NAMES[dep].toLowerCase()}` : '';
+    const locText = [muni, uf].filter(Boolean).join(' · ');
+    const descText = [locText, depLabel].filter(Boolean).join(' · ');
+    return `<li data-s="${code}"${isSel ? ' class="sel"' : ''}><b>${from + j + 1}</b><p>Escola nº ${code}${descText ? ` <small class="mut">(${descText})</small>` : ''}<span><i style="width:${100 * v / top}%"></i></span></p><em>${mean ? f1(v) + `<small>${fmt(c)} cand.</small>` : fmt(c)}</em></li>`;
+  }).join('');
+  $('spage').textContent = schoolRows.length ? `${from + 1}–${Math.min(from + SPAGE, schoolRows.length)} de ${fmt(schoolRows.length)} escolas` : 'Nenhuma escola com esse mínimo de candidatos';
+  $('sprev').disabled = schoolPage === 0;
+  $('snext').disabled = schoolPage >= pages - 1;
+}
 function renderMap(m) {
   lastResult = m;
   if (!mapEls) return;
@@ -394,6 +431,7 @@ function initWorker() {
       $('status').textContent = `Lendo ${m.what}… ${Math.round(100 * m.read / m.size)}% • ${fmt(m.rows)} linhas • ${Math.round((performance.now() - t0) / 1000)} s`;
     } else if (m.t === 'loaded') {
       munis = m.munis.map(([c, n]) => ({ key: norm(n), label: `${n} (${UF_BY_IBGE[Math.floor(c / 100000)] || '?'})` }));
+      schools = m.schools || [];
       muniSel.clear(); ufSel.clear(); renderMunis(); hasCopy = m.copy;
       $('bar').hidden = true; $('work').hidden = false; showCache();
       setStatus(`${fmt(m.rows)} linhas carregadas ${m.cached ? 'dos dados salvos' : ''} em ${(m.ms / 1000).toFixed(1)} s.${m.profile ? ` Perfil: ${fmt(m.profile.rows)} participantes.` : ''}${m.notes.length ? ' ' + m.notes.join(' ') : ''}`);
@@ -404,7 +442,7 @@ function initWorker() {
       $('count').textContent = fmt(m.count);
       $('pct').textContent = `${(100 * m.count / m.total).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}% do total`;
       $('ms').textContent = `${fmt(m.total)} no total • filtrado em ${m.ms} ms`;
-      lastCount = m.count; renderStats(m.stats, m.hitStats, m.simpleStats); renderMap(m); renderHitScore(m.hitScore); muniPage = 0; renderMuniRank();
+      lastCount = m.count; renderStats(m.stats, m.hitStats, m.simpleStats); renderMap(m); renderHitScore(m.hitScore); muniPage = 0; renderMuniRank(); schoolPage = 0; renderSchoolRank();
       pageOff = 0; requestPage();
     } else if (m.t === 'page') {
       if (m.id === seq) renderPage(m);
@@ -417,7 +455,7 @@ function initWorker() {
     else if (m.t === 'saved') { cacheInfo = { saved: true }; showCache(); $('status').textContent = base + ' Salvo para a próxima vez.'; }
     else if (m.t === 'savefail') $('status').textContent = base + ' (não foi possível salvar: ' + m.msg + ')';
     else if (m.t === 'cleared') { cacheInfo = null; showCache(); setStatus('Dados salvos apagados.'); }
-    else if (m.t === 'released') { csvFallback = null; hasCopy = false; $('detail').close(); $('work').hidden = true; showCache(); $('file').value = ''; setStatus('Dados liberados da memória.'); renderProfile(null); }
+    else if (m.t === 'released') { csvFallback = null; hasCopy = false; $('detail').close(); $('work').hidden = true; showCache(); $('file').value = ''; setStatus('Dados liberados da memória.'); renderProfile(null); schools = []; schoolRows = []; $('srank').innerHTML = ''; }
     else if (m.t === 'error') { $('bar').hidden = true; setStatus('Erro: ' + m.msg); }
   };
   worker.postMessage({ t: 'init' });
@@ -486,6 +524,18 @@ $('mmin').oninput = () => { muniPage = 0; renderMuniRank(); };
 $('mprev').onclick = () => { muniPage--; renderMuniRank(); };
 $('mnext').onclick = () => { muniPage++; renderMuniRank(); };
 $('mrank').addEventListener('click', (e) => { const li = e.target.closest('li'); if (!li) return; const g = +li.dataset.m; muniSel.has(g) ? muniSel.delete(g) : muniSel.set(g, munis[g].label); renderMunis(); schedule(); });
+$('smin').oninput = () => { schoolPage = 0; renderSchoolRank(); };
+$('sprev').onclick = () => { schoolPage--; renderSchoolRank(); };
+$('snext').onclick = () => { schoolPage++; renderSchoolRank(); };
+$('srank').addEventListener('click', (e) => {
+  const li = e.target.closest('li');
+  if (!li) return;
+  const s = li.dataset.s;
+  if (!s) return;
+  $('CO_ESCOLA').value = $('CO_ESCOLA').value === s ? '' : s;
+  countActive();
+  schedule();
+});
 $('file').onchange = (e) => e.target.files[0] && start(e.target.files[0]);
 $('cards').addEventListener('click', (e) => { const c = e.target.closest('.cand'); if (c) openDetail(pageRows[+c.dataset.k]); });
 $('dclose').onclick = () => $('detail').close();

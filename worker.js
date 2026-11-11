@@ -423,13 +423,56 @@ async function load(file) {
   }
   postMessage({ t: 'precompute', rows: n });
   buildSimpleRanks();
+  buildSchoolIndex();
   ready = true;
   announce(Math.round(performance.now() - t0), false);
   try { postMessage({ t: 'saving' }); await saveCache(file); postMessage({ t: 'saved' }); }
   catch (err) { postMessage({ t: 'savefail', msg: String(err && err.message || err) }); }
 }
 function announce(ms, cached) {
-  postMessage({ t: 'loaded', rows: n, ufs: ufNames, munis: dicts[1].codes.map((c, i) => [c, dicts[1].names[i]]), ms, cached, copy, profile: profileInfo(), notes });
+  postMessage({ t: 'loaded', rows: n, ufs: ufNames, munis: dicts[1].codes.map((c, i) => [c, dicts[1].names[i]]),
+    schools: schoolDict ? schoolDict.codes.map((c, i) => [c, schoolDict.munis[i], schoolDict.ufs[i], schoolDict.deps[i]]) : [],
+    ms, cached, copy, profile: profileInfo(), notes });
+}
+let schoolDict = null;
+function buildSchoolIndex() {
+  const esc = cols.CO_ESCOLA;
+  if (!esc) { schoolDict = null; return; }
+  const mEsc = cols.NO_MUNICIPIO_ESC, mPrv = cols.NO_MUNICIPIO_PROVA;
+  const uEsc = cols.SG_UF_ESC, uPrv = cols.SG_UF_PROVA;
+  const dep = cols.TP_DEPENDENCIA_ADM_ESC;
+  const map = new Map();
+  const codes = [], schoolMunis = [], schoolUfs = [], schoolDeps = [];
+  const sIdx = new Uint32Array(n);
+  sIdx.fill(0xFFFFFFFF);
+  for (let i = 0; i < n; i++) {
+    const code = esc[i];
+    if (code <= 0) continue;
+    let idx = map.get(code);
+    if (idx === undefined) {
+      idx = codes.length;
+      map.set(code, idx);
+      codes.push(code);
+      schoolMunis.push('');
+      schoolUfs.push('');
+      schoolDeps.push(dep ? dep[i] : 255);
+    }
+    if (!schoolMunis[idx]) {
+      const mIdx = (mEsc && mEsc[i] !== 65535) ? mEsc[i] : 65535;
+      if (mIdx !== 65535 && dicts[0] && dicts[0].names[mIdx]) schoolMunis[idx] = dicts[0].names[mIdx];
+      else if (mPrv && mPrv[i] !== 65535 && dicts[1] && dicts[1].names[mPrv[i]]) schoolMunis[idx] = dicts[1].names[mPrv[i]];
+    }
+    if (!schoolUfs[idx]) {
+      const uIdx = (uEsc && uEsc[i] !== 255) ? uEsc[i] : (uPrv ? uPrv[i] : 255);
+      if (uIdx !== 255 && ufNames[uIdx]) schoolUfs[idx] = ufNames[uIdx];
+    }
+    if (schoolDeps[idx] === 255 && dep && dep[i] !== 255) {
+      schoolDeps[idx] = dep[i];
+    }
+    sIdx[i] = idx;
+  }
+  cols.SCHOOL_INDEX = sIdx;
+  schoolDict = { codes, munis: schoolMunis, ufs: schoolUfs, deps: schoolDeps };
 }
 // Precompute exact default simple-average ranks once, then reuse them on every filter and page.
 function buildSimpleRanks() {
@@ -479,6 +522,7 @@ async function saveCache(file) {
     for (const k in cols) await tx(db, 'readwrite', (s) => s.put(cols[k], 'col:' + k));
     for (const k in pcols) await tx(db, 'readwrite', (s) => s.put(pcols[k], 'pcol:' + k));
     const meta = { v: CACHE_V, copy, rows: n, cols: Object.keys(cols), ufNames, dicts: dicts.map((d) => ({ names: d.names, codes: d.codes })),
+      schoolDict: schoolDict ? { codes: schoolDict.codes, munis: schoolDict.munis, ufs: schoolDict.ufs, deps: schoolDict.deps } : null,
       file: { name: file.name, size: file.size }, header: headerText, savedAt: Date.now(),
       profile: pcols ? { rows: pn, cols: Object.keys(pcols), cats: pcats, dict: { names: pdicts.names, codes: pdicts.codes }, labels: plabels } : null, notes };
     await tx(db, 'readwrite', (s) => s.put(meta, 'meta')); // written last: a partial save is never used
@@ -493,7 +537,10 @@ async function loadCache() {
     for (const k of meta.cols) c[k] = await tx(db, 'readonly', (s) => s.get('col:' + k));
     const pr = meta.profile; pcols = null; pcats = {}; pdicts = null; plabels = null; notes = meta.notes || [];
     if (pr) { pcols = {}; for (const k of pr.cols) pcols[k] = await tx(db, 'readonly', (s) => s.get('pcol:' + k)); pn = pr.rows; pcats = pr.cats; pdicts = pr.dict; plabels = pr.labels; }
-    cols = c; n = meta.rows; ufNames = meta.ufNames; dicts = meta.dicts; headerText = meta.header || null; copy = !!meta.copy; ready = true;
+    cols = c; n = meta.rows; ufNames = meta.ufNames; dicts = meta.dicts; headerText = meta.header || null; copy = !!meta.copy;
+    schoolDict = meta.schoolDict || null;
+    if (!schoolDict && cols.CO_ESCOLA) buildSchoolIndex();
+    ready = true;
   } finally { db.close(); }
   announce(Math.round(performance.now() - t0), true);
 }
@@ -534,6 +581,9 @@ function filter(q) {
   const mcol = q.metric >= 0 ? sa[q.metric] : null; // per-UF metric: counts/means ignore the UF filter itself, so the map stays informative
   const uf = cols.SG_UF_PROVA, pc = new Uint32Array(32), ps = new Float64Array(32), pn = new Uint32Array(32);
   const mcn = new Uint32Array(65536), mcs = new Float64Array(65536), mcp = new Uint32Array(65536); // per-municipality count / score sum / scored count: ignore the municipality filter itself, respect the UF one
+  const nSchools = schoolDict ? schoolDict.codes.length : 0;
+  const scn = new Uint32Array(nSchools), scs = new Float64Array(nSchools), scp = new Uint32Array(nSchools);
+  const sIdx = cols.SCHOOL_INDEX;
   const hitCols = HIT_KEYS.map((k) => cols[k]), hitN = new Uint32Array(5), hitSum = new Float64Array(5), hitMin = new Uint8Array(5).fill(255), hitMax = new Uint8Array(5);
   const hitHist = new Uint32Array(4 * 46), totalHitHist = new Uint32Array(181);
   const hs = new Uint32Array(4 * 46), hsum = new Float64Array(4 * 46), hmin = new Float64Array(4 * 46).fill(Infinity), hmax = new Float64Array(4 * 46).fill(-Infinity); // score per (area, correct answers)
@@ -548,6 +598,13 @@ function filter(q) {
     if (ufOk) { const g = mc[i]; mcn[g]++; if (mcol) { const x = mcol[i]; if (x === x) { mcs[g] += x; mcp[g]++; } } }
     if (!muOk || !ufOk) continue;
     matchIdx[count++] = i;
+    if (sIdx) {
+      const s = sIdx[i];
+      if (s !== 0xFFFFFFFF) {
+        scn[s]++;
+        if (mcol) { const x = mcol[i]; if (x === x) { scs[s] += x; scp[s]++; } }
+      }
+    }
     let totalHits = 0, allHits = true;
     for (let k = 0; k < 4; k++) { const h = hitCols[k][i]; if (h === 255) allHits = false; else { hitN[k]++; hitSum[k] += h; hitHist[k * 46 + h]++; if (h < hitMin[k]) hitMin[k] = h; if (h > hitMax[k]) hitMax[k] = h; totalHits += h; } }
     for (let k = 0; k < 4; k++) { const h = hitCols[k][i], x = sa[k][i]; if (h !== 255 && x === x) { const j = k * 46 + h; hs[j]++; hsum[j] += x; if (x < hmin[j]) hmin[j] = x; if (x > hmax[j]) hmax[j] = x; } }
@@ -564,11 +621,13 @@ function filter(q) {
   matchN = count; sortedIdx = null; matchMask = null;
   const nu = ufNames.length, pm = [], pmn = [], pmm = [];
   for (let g = 0; g < dicts[1].names.length; g++) if (mcn[g]) { pm.push(g); pmn.push(mcn[g]); pmm.push(mcp[g] ? mcs[g] / mcp[g] : null); }
+  const psch = [], pschn = [], pschm = [];
+  for (let s = 0; s < nSchools; s++) if (scn[s]) { psch.push(s); pschn.push(scn[s]); pschm.push(scp[s] ? scs[s] / scp[s] : null); }
   const hitStats = Array.from({ length: 5 }, (_, k) => { const c = hitN[k], hist = k === 4 ? totalHitHist : hitHist, off = k === 4 ? 0 : k * 46, end = k === 4 ? 181 : 46; let med = null, cum = 0; if (c) for (let v = 0; v < end; v++) { cum += hist[off + v]; if (cum >= Math.ceil(c / 2)) { med = v; break; } } let ss = 0; if (c) for (let v = 0; v < end; v++) ss += hist[off + v] * (v - hitSum[k] / c) ** 2; return { n: c, sd: c ? Math.sqrt(ss / c) : null, mean: c ? hitSum[k] / c : null, median: med, min: c ? hitMin[k] : null, max: c ? hitMax[k] : null }; });
   const simpleStats = count ? summarize(0, [simpleSum], [simpleSq], [count], [simpleMin], [simpleMax], simpleHist) : { n: 0 };
   const hitScore = Array.from({ length: 4 }, (_, k) => Array.from({ length: 46 }, (_, h) => { const j = k * 46 + h; return hs[j] ? [hs[j], hmin[j], hsum[j] / hs[j], hmax[j]] : null; })); // [area][hits] -> [n, min, mean, max]
   postMessage({ t: 'result', id: q.id, count, total: n, hitStats, simpleStats, hitScore, ms: +(performance.now() - t0).toFixed(1), ufs: ufNames,
-    perMuni: pm, perMuniN: pmn, perMuniMean: pmm, perUf: Array.from(pc.subarray(0, nu)), perUfMean: Array.from(ps.subarray(0, nu), (s, u) => (pn[u] ? s / pn[u] : null)),
+    perMuni: pm, perMuniN: pmn, perMuniMean: pmm, perSchool: psch, perSchoolN: pschn, perSchoolMean: pschm, perUf: Array.from(pc.subarray(0, nu)), perUfMean: Array.from(ps.subarray(0, nu), (s, u) => (pn[u] ? s / pn[u] : null)),
     stats: SK.map((_, k) => summarize(k, sum, sq, cn, mn, mx, hist)) });
 }
 function row(i) {
@@ -684,7 +743,7 @@ self.onmessage = async ({ data }) => {
     else if (data.t === 'init') { let meta = null; try { meta = await cacheMeta(); } catch {} postMessage({ t: meta ? 'cache' : 'nocache', meta }); }
     else if (data.t === 'usecache') { resetOrders(); await loadCache(); }
     else if (data.t === 'clearcache') { await clearCache(); postMessage({ t: 'cleared' }); }
-    else if (data.t === 'release') { resetOrders(); cols = null; pcols = null; pdicts = null; plabels = null; matchIdx = null; offs = null; headerText = null; n = 0; ready = false; postMessage({ t: 'released' }); }
+    else if (data.t === 'release') { resetOrders(); cols = null; pcols = null; pdicts = null; plabels = null; schoolDict = null; matchIdx = null; offs = null; headerText = null; n = 0; ready = false; postMessage({ t: 'released' }); }
   } catch (err) { postMessage({ t: 'error', msg: String(err.message || err) }); }
   if (ready) warmOrders(); // idle time goes to pre-building every sort order
 };
