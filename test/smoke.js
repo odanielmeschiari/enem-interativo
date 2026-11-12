@@ -174,20 +174,24 @@ const send = (d, t) => { const p = wait(t); self.onmessage({ data: d }); return 
     return v.join(';');
   };
   const itens = ['CO_POSICAO;SG_AREA;CO_ITEM;TX_GABARITO;CO_HABILIDADE;IN_ITEM_ABAN;TX_MOTIVO_ABAN;NU_PARAM_A;NU_PARAM_B;NU_PARAM_C;TX_COR;CO_PROVA;TP_LINGUA;IN_ITEM_ADAPTADO'];
+  const BASE = { LC: 0, CH: 45, CN: 90, MT: 135 }; // CO_POSICAO is the question number in the whole exam, not inside the area
+  const posOf = (area, p) => BASE[area] + p;
   const item = (area, pos, id, gab, lang, cp = 9001) => `${pos};${area};${id};${gab};1;0;;1.2;0.3;0.2;AZUL;${cp};${lang};0`;
   for (let p = 1; p <= 45; p++) {
-    itens.push(item('CN', p, 1000 + p, 'A', ''), item('CH', p, 2000 + p, 'B', ''), item('MT', p, 3000 + p, 'A', ''));
-    itens.push(p <= 5 ? item('LC', p, 4000 + p, 'A', '0') : item('LC', p, 4200 + p, 'A', ''));
-    if (p <= 5) itens.push(item('LC', p, 4100 + p, 'B', '1'));
+    itens.push(item('CN', posOf('CN', p), 1000 + p, 'A', ''), item('CH', posOf('CH', p), 2000 + p, 'B', ''), item('MT', posOf('MT', p), 3000 + p, 'A', ''));
+    itens.push(p <= 5 ? item('LC', posOf('LC', p), 4000 + p, 'A', '0') : item('LC', posOf('LC', p), 4200 + p, 'A', ''));
+    if (p <= 5) itens.push(item('LC', posOf('LC', p), 4100 + p, 'B', '1'));
   }
-  itens.push(item('CN', 2, 1001, 'A', '', 9002)); // the same item in a second colour, at another position
+  itens.push(item('CN', posOf('CN', 2), 1001, 'A', '', 9002)); // the same item in a second colour, at another position
   const li = await send({ t: 'load', file: new File([zip([['microdados_enem_2024/DADOS/RESULTADOS_2024.csv',
     Buffer.from([H.join(';'), csvRow(0, 0), csvRow(1, 0, '9002'), csvRow(2, 1, '9002')].join('\n') + '\n')],
     ['microdados_enem_2024/DADOS/ITENS_PROVA_2024.csv', Buffer.from(itens.join('\n') + '\n')]], false)], 'enem-itens.zip') }, 'loaded');
   const by = (area, id) => li.items[area].find((x) => x.id === id);
   assert.strictEqual(li.items.CN.length, 45); assert.strictEqual(li.items.LC.length, 50); // 40 common + 5 English + 5 Spanish
   assert.strictEqual(by('CN', 1001).pct, 1); assert.strictEqual(by('CN', 1001).answered, 3);
-  assert.deepStrictEqual(by('CN', 1001).exams.map((e) => [e.cp, e.pos, e.answered, e.hits]), [[9001, 1, 1, 1], [9002, 2, 2, 2]]); // per-colour breakdown
+  assert.deepStrictEqual(by('CN', 1001).exams.map((e) => [e.cp, e.pos, e.answered, e.hits]), [[9001, 91, 1, 1], [9002, 92, 2, 2]]); // per-colour breakdown
+  assert.strictEqual(by('MT', 3007).pct, 1); assert.strictEqual(by('MT', 3007).answered, 3); // every area is counted, not only the one that starts at position 1
+  assert.strictEqual(by('MT', 3007).exams.length, 1); assert.strictEqual(by('MT', 3007).exams[0].pos, 142);
   assert.strictEqual(by('CN', 1002).exams.length, 1);
   assert.strictEqual(by('CH', 2001).pct, 0); // everyone answered, nobody got it
   assert.strictEqual(by('LC', 4001).pct, 1); assert.strictEqual(by('LC', 4001).answered, 2); // English item: English candidates only

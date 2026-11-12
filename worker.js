@@ -20,7 +20,7 @@ const HIT_KEYS = ['ACERTOS_CN', 'ACERTOS_CH', 'ACERTOS_LC', 'ACERTOS_MT'];
 const TOTAL_HITS = 'ACERTOS_TOTAL';
 const responseSpans = new Int32Array(16).fill(-1);
 const examCode = new Int32Array(4).fill(-1); // CO_PROVA_* of the current row (load only)
-const ITEM_SLOTS = 64, PROVA_SLOTS = 16384, LANG_SLOTS = 3; // 4-digit CO_PROVA; 64 slots cover positions 1..50
+const ITEM_SLOTS = 64, PROVA_SLOTS = 16384, LANG_SLOTS = 3; // 45 questions per exam, stored at their index inside the area; 4-digit CO_PROVA
 const AREA_SLOTS = [PROVA_SLOTS, PROVA_SLOTS, PROVA_SLOTS * LANG_SLOTS, PROVA_SLOTS]; // LC is keyed by (exam, language) too
 let itemHits = null, examN = null; // hits per (exam, position) and valid answers per exam, freed after the load
 const dec = new TextDecoder('utf-8', { fatal: true }), lat = new TextDecoder('windows-1252');
@@ -422,6 +422,13 @@ async function loadItems(file, ents) {
   if (pPos < 0 || pArea < 0 || pItem < 0) throw new Error('cabeçalho de ITENS_PROVA inválido');
   const AREA_IX = { CN: 0, CH: 1, LC: 2, MT: 3 };
   const byArea = { CN: new Map(), CH: new Map(), LC: new Map(), MT: new Map() };
+  const posBase = {}; // CO_POSICAO is the question number in the whole exam (LC 1..45, CH 46..90, CN 91..135, MT 136..180): each area starts at its own first position
+  for (let i = 1; i < rows.length; i++) {
+    if (!rows[i]) continue;
+    const f = rows[i].split(';'), area = f[pArea], p = +f[pPos];
+    if (!byArea[area] || !(p > 0)) continue;
+    if (!(area in posBase) || p < posBase[area]) posBase[area] = p;
+  }
   const corOf = new Map(), numOr = (v) => (v === undefined || v === '' ? undefined : +v);
   for (let i = 1; i < rows.length; i++) {
     if (!rows[i]) continue;
@@ -430,10 +437,10 @@ async function loadItems(file, ents) {
     if (!m) continue;
     let it = m.get(id);
     if (!it) { it = { pos: +f[pPos], id, gab: pGab >= 0 ? f[pGab] : '', a: numOr(f[pA]), b: numOr(f[pB]), c: numOr(f[pC]), spans: new Set() }; m.set(id, it); }
-    const cp = pProv >= 0 ? +f[pProv] : NaN, pos = +f[pPos];
+    const cp = pProv >= 0 ? +f[pProv] : NaN, pos = +f[pPos], off = pos - (posBase[area] || 1);
     if (pCor >= 0 && f[pCor] && cp >= 0 && !corOf.has(cp)) corOf.set(cp, f[pCor].trim());
-    if (cp >= 0 && cp < PROVA_SLOTS && pos > 0 && pos <= ITEM_SLOTS) { // same item may repeat across colours
-      const off = pos - 1, lang = pLang >= 0 && f[pLang] !== '' ? +f[pLang] : -1;
+    if (cp >= 0 && cp < PROVA_SLOTS && off >= 0 && off < ITEM_SLOTS) { // same item may repeat across colours
+      const lang = pLang >= 0 && f[pLang] !== '' ? +f[pLang] : -1;
       if (area !== 'LC') it.spans.add(cp * ITEM_SLOTS + off);
       else if (lang === 0 || lang === 1) it.spans.add((cp * LANG_SLOTS + lang) * ITEM_SLOTS + off); // English/Spanish item
       else for (let L = 0; L < LANG_SLOTS; L++) it.spans.add((cp * LANG_SLOTS + L) * ITEM_SLOTS + off); // common item: both languages
@@ -446,7 +453,7 @@ async function loadItems(file, ents) {
       let h = 0, a = 0;
       const exams = [];
       for (const k of it.spans) {
-        const ex = (k / ITEM_SLOTS) | 0, hh = hits[k], aa = answers[ex], pos = (k % ITEM_SLOTS) + 1;
+        const ex = (k / ITEM_SLOTS) | 0, hh = hits[k], aa = answers[ex], pos = (posBase[area] || 1) + (k % ITEM_SLOTS);
         h += hh; a += aa;
         if (!aa) continue; // this colour had no valid answer for the item, so there is nothing to show
         const cp = area === 'LC' ? (ex / LANG_SLOTS) | 0 : ex, lang = area === 'LC' ? ex % LANG_SLOTS : -1;
@@ -579,7 +586,7 @@ function buildSimpleRanks() {
   cols.RANK_AVG_ALL = all; cols.RANK_AVG_STATE = stateRank; cols.RANK_AVG_CITY = cityRank; cols.RANK_AVG_SCHOOL = schoolRank;
 }
 // Cache: only the compact columns (~300 MB) go to IndexedDB, never the raw CSV.
-const CACHE_V = 9;
+const CACHE_V = 10;
 const idb = () => new Promise((res, rej) => {
   const r = indexedDB.open('enem-cache', 1);
   r.onupgradeneeded = () => r.result.createObjectStore('kv');

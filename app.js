@@ -586,10 +586,12 @@ function renderTriAnalysis() {
     triHighlight(list, byDisc, { label: 'Mais discriminativa', value: (it) => `a = ${f1(it.a)}` }),
   ].join('');
   const rows = [...list].sort(TRI_SORTS[$('tri-sort').value] || TRI_SORTS.pos);
+  const noData = list.filter((it) => it.pct === undefined).length;
   const examName = (e) => (e.cor ? e.cor.charAt(0) + e.cor.slice(1).toLowerCase() : `Prova ${e.cp}`) + (e.lang === 0 ? ' • Inglês' : e.lang === 1 ? ' • Espanhol' : '');
   box.innerHTML = `
     <div class="statgrid">${tiles}</div>
     <p class="mut"><b>${fmt(list.length)}</b> questões nesta área. Abra <b>Detalhe</b> para ver os acertos por cor de prova.</p>
+    ${noData ? `<p class="mut"><b>${fmt(noData)}</b> ${noData === 1 ? 'questão não tem' : 'questões não têm'} % de acertos: ${noData === 1 ? 'ela aparece' : 'elas aparecem'} só em versões da prova sem candidatos na base.</p>` : ''}
     <div style="overflow-x:auto">
       <table class="tri-table">
         <thead><tr><th>Posição</th><th>Item</th><th>Gabarito</th><th>Dificuldade (b)</th><th>Discriminação (a)</th><th>Acerto ao acaso (c)</th><th>Acertos</th><th>Detalhe</th></tr></thead>
