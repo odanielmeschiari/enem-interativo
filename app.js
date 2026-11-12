@@ -389,10 +389,11 @@ function renderProfile(profile) {
   if (!profile || !profile.vars || !profile.vars.length) {
     lastProfileVars = [];
     sec.hidden = true;
+    updateToc();
     return;
   }
   lastProfileVars = profile.vars.filter((v) => !shouldSkipProfileVar(v) && v.opts && v.opts.length);
-  if (!lastProfileVars.length) { sec.hidden = true; return; }
+  if (!lastProfileVars.length) { sec.hidden = true; updateToc(); return; }
   sec.hidden = false;
   $('profile-count').textContent = `${fmt(profile.rows)} participantes`;
   $('profile-grid').innerHTML = lastProfileVars.map((v, k) => {
@@ -417,6 +418,7 @@ function renderProfile(profile) {
       `<div class="pcard-foot"><small>Ver todas as opções (${v.opts.length}) →</small></div>` +
       `</div>`;
   }).join('');
+  updateToc();
 }
 
 function initWorker() {
@@ -437,6 +439,7 @@ function initWorker() {
       setStatus(`${fmt(m.rows)} linhas carregadas ${m.cached ? 'dos dados salvos' : ''} em ${(m.ms / 1000).toFixed(1)} s.${m.profile ? ` Perfil: ${fmt(m.profile.rows)} participantes.` : ''}${m.notes.length ? ' ' + m.notes.join(' ') : ''}`);
       renderProfile(m.profile || null);
       triItems = m.items || null; renderTriAnalysis();
+      updateToc();
       run();
     } else if (m.t === 'result') {
       if (m.id !== seq) return;
@@ -456,7 +459,7 @@ function initWorker() {
     else if (m.t === 'saved') { cacheInfo = { saved: true }; showCache(); $('status').textContent = base + ' Salvo para a próxima vez.'; }
     else if (m.t === 'savefail') $('status').textContent = base + ' (não foi possível salvar: ' + m.msg + ')';
     else if (m.t === 'cleared') { cacheInfo = null; showCache(); setStatus('Dados salvos apagados.'); }
-    else if (m.t === 'released') { csvFallback = null; hasCopy = false; $('detail').close(); $('work').hidden = true; showCache(); $('file').value = ''; setStatus('Dados liberados da memória.'); renderProfile(null); triItems = null; renderTriAnalysis(); schools = []; schoolRows = []; $('srank').innerHTML = ''; }
+    else if (m.t === 'released') { csvFallback = null; hasCopy = false; $('detail').close(); $('work').hidden = true; showCache(); $('file').value = ''; setStatus('Dados liberados da memória.'); renderProfile(null); triItems = null; renderTriAnalysis(); schools = []; schoolRows = []; $('srank').innerHTML = ''; updateToc(); }
     else if (m.t === 'error') { $('bar').hidden = true; setStatus('Erro: ' + m.msg); }
   };
   worker.postMessage({ t: 'init' });
@@ -618,6 +621,32 @@ $('tri-analysis-content').addEventListener('click', (e) => { // expand the per-c
   b.setAttribute('aria-expanded', String(!row.hidden));
   b.classList.toggle('open', !row.hidden);
 });
+
+// Fixed index on the left: only the sections on screen, with the current one lit.
+const tocLinks = () => [...document.querySelectorAll('#toc a')];
+function updateToc() {
+  const toc = $('toc'), vis = [];
+  for (const a of tocLinks()) {
+    const el = document.querySelector(a.getAttribute('href'));
+    const ok = !!el && el.getClientRects().length > 0; // a hidden section takes its index entry with it
+    a.parentElement.hidden = !ok;
+    if (ok) vis.push([a, el]);
+  }
+  toc.hidden = vis.length < 2;
+  if (toc.hidden) return;
+  let active = vis[0][0], best = -Infinity;
+  for (const [a, el] of vis) {
+    const top = el.getBoundingClientRect().top;
+    if (top <= 150 && top > best) { best = top; active = a; } // equal tops keep the first one (the map and the result share a row)
+  }
+  if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 8) active = vis[vis.length - 1][0]; // the last card may never reach the line
+  for (const [a] of vis) a.classList.toggle('active', a === active);
+}
+let tocFrame = 0;
+function queueToc() { if (!tocFrame) tocFrame = requestAnimationFrame(() => { tocFrame = 0; updateToc(); }); }
+addEventListener('scroll', queueToc, { passive: true });
+addEventListener('resize', queueToc);
+updateToc();
 
 $('f').addEventListener('input', (e) => { if (e.target.id !== 'mq') { countActive(); schedule(); } });
 $('mq').addEventListener('input', suggest);

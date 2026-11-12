@@ -8,6 +8,21 @@
 </head>
 <body>
 <header><h1>Analista ENEM</h1></header>
+<nav id="toc" aria-label="Índice das seções">
+  <ol>
+    <li><a href="#load">Escolher a base</a></li>
+    <li><a href="#filters">Filtros</a></li>
+    <li><a href="#map-card">Mapa</a></li>
+    <li><a href="#result-card">Resultado</a></li>
+    <li><a href="#mrank-card">Ranking dos municípios</a></li>
+    <li><a href="#srank-card">Ranking das escolas</a></li>
+    <li><a href="#tri-analysis-section">Análise de TRI e Questões (ENEM)</a></li>
+    <li><a href="#stats-card">Estatísticas do resultado</a></li>
+    <li><a href="#hit-card">Acertos × notas TRI</a></li>
+    <li><a href="#candidates">Candidatos</a></li>
+    <li><a href="#profile-section">Perfil dos participantes</a></li>
+  </ol>
+</nav>
 <main>
   <section id="load" class="card">
     <h2>Escolher a base</h2>
@@ -17,7 +32,7 @@
     <button id="delcache" class="wipe" hidden><i></i>Apagar dados</button>
   </section>
   <div id="work" hidden>
-    <section class="card">
+    <section class="card" id="filters">
       <h2>Filtros <button id="clear" class="icon" title="Limpar todos os filtros" aria-label="Limpar todos os filtros"><i></i></button></h2>
       <form id="f" onsubmit="return false">
         <div class="toggles"><label><input type="checkbox" id="nofalta">Ocultar candidatos com faltas</label></div>
@@ -70,7 +85,7 @@
       </details>
     </section>
     <div class="grid">
-      <section class="card">
+      <section class="card" id="map-card">
         <h2>Mapa <select id="metric"></select></h2>
         <div id="map"></div>
         <div id="legend"></div>
@@ -78,13 +93,13 @@
         <ol id="rank" class="rank"></ol>
       </section>
       <div class="side">
-        <aside class="card result">
+        <aside class="card result" id="result-card">
           <h2>Resultado</h2>
           <p class="big"><span id="count">–</span> <small>candidatos</small></p>
           <p id="pct"></p>
           <p id="ms"></p>
         </aside>
-        <section class="card">
+        <section class="card" id="mrank-card">
           <h2>Ranking dos municípios</h2>
           <label class="mut">Mostrar só municípios com pelo menos <input type="number" id="mmin" min="1" value="10"> candidatos</label>
           <ol id="mrank" class="mrank"></ol>
@@ -92,7 +107,7 @@
         </section>
       </div>
     </div>
-    <section class="card">
+    <section class="card" id="srank-card">
       <h2>Ranking das escolas</h2>
       <label class="mut">Mostrar só escolas com pelo menos <input type="number" id="smin" min="1" value="10"> candidatos</label>
       <ol id="srank" class="srank"></ol>
@@ -121,15 +136,15 @@
         <p>Carregue os dados do ENEM para visualizar a análise de TRI.</p>
       </div>
     </section>
-    <section class="card">
+    <section class="card" id="stats-card">
       <h2>Estatísticas do resultado <select id="statop"></select></h2>
       <div id="statgrid" class="statgrid"></div>
     </section>
-    <section class="card">
+    <section class="card" id="hit-card">
       <h2>Acertos × notas TRI <select id="hitarea"></select></h2>
       <div id="hittable" class="hit-tables"></div>
     </section>
-    <section class="card">
+    <section class="card" id="candidates">
       <h2>Candidatos <div class="menu" id="sortmenu"><button type="button" class="menu-btn" id="sortbtn" aria-haspopup="true">Ordem do arquivo</button><ul class="menu-list" id="sortlist"></ul></div></h2>
       <div id="cards" class="cards"></div>
       <div class="pager"><button id="prev">← Anterior</button><span id="pageinfo"></span><button id="next">Próximos →</button></div>
