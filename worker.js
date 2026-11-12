@@ -418,10 +418,11 @@ async function loadItems(file, ents) {
   const col = (name) => head.indexOf(name);
   const pPos = col('CO_POSICAO'), pArea = col('SG_AREA'), pItem = col('CO_ITEM'), pGab = col('TX_GABARITO');
   const pA = col('NU_PARAM_A'), pB = col('NU_PARAM_B'), pC = col('NU_PARAM_C'), pProv = col('CO_PROVA'), pLang = col('TP_LINGUA');
+  const pCor = col('TX_COR'); // colour name of the exam ("AZUL", "AMARELA", ...), the same for one CO_PROVA
   if (pPos < 0 || pArea < 0 || pItem < 0) throw new Error('cabeçalho de ITENS_PROVA inválido');
   const AREA_IX = { CN: 0, CH: 1, LC: 2, MT: 3 };
   const byArea = { CN: new Map(), CH: new Map(), LC: new Map(), MT: new Map() };
-  const numOr = (v) => (v === undefined || v === '' ? undefined : +v);
+  const corOf = new Map(), numOr = (v) => (v === undefined || v === '' ? undefined : +v);
   for (let i = 1; i < rows.length; i++) {
     if (!rows[i]) continue;
     const f = rows[i].split(';'), area = f[pArea], id = +f[pItem];
@@ -430,6 +431,7 @@ async function loadItems(file, ents) {
     let it = m.get(id);
     if (!it) { it = { pos: +f[pPos], id, gab: pGab >= 0 ? f[pGab] : '', a: numOr(f[pA]), b: numOr(f[pB]), c: numOr(f[pC]), spans: new Set() }; m.set(id, it); }
     const cp = pProv >= 0 ? +f[pProv] : NaN, pos = +f[pPos];
+    if (pCor >= 0 && f[pCor] && cp >= 0 && !corOf.has(cp)) corOf.set(cp, f[pCor].trim());
     if (cp >= 0 && cp < PROVA_SLOTS && pos > 0 && pos <= ITEM_SLOTS) { // same item may repeat across colours
       const off = pos - 1, lang = pLang >= 0 && f[pLang] !== '' ? +f[pLang] : -1;
       if (area !== 'LC') it.spans.add(cp * ITEM_SLOTS + off);
@@ -442,8 +444,22 @@ async function loadItems(file, ents) {
     const g = AREA_IX[area], hits = itemHits[g], answers = examN[g], list = [];
     for (const it of byArea[area].values()) {
       let h = 0, a = 0;
-      for (const k of it.spans) { h += hits[k]; a += answers[(k / ITEM_SLOTS) | 0]; }
-      list.push({ pos: it.pos, id: it.id, gab: it.gab, a: it.a, b: it.b, c: it.c, hits: h, answered: a, pct: a ? h / a : undefined });
+      const exams = [];
+      for (const k of it.spans) {
+        const ex = (k / ITEM_SLOTS) | 0, hh = hits[k], aa = answers[ex], pos = (k % ITEM_SLOTS) + 1;
+        h += hh; a += aa;
+        if (!aa) continue; // this colour had no valid answer for the item, so there is nothing to show
+        const cp = area === 'LC' ? (ex / LANG_SLOTS) | 0 : ex, lang = area === 'LC' ? ex % LANG_SLOTS : -1;
+        exams.push({ cp, cor: corOf.get(cp) || '', lang, pos, hits: hh, answered: aa, pct: hh / aa });
+      }
+      const one = new Map(); // one entry per (colour, language): sum the positions when an item repeats inside the same exam
+      for (const e of exams) {
+        const key = e.cp + '|' + e.lang, cur = one.get(key);
+        if (cur) { cur.hits += e.hits; cur.answered += e.answered; cur.pct = cur.hits / cur.answered; if (e.pos < cur.pos) cur.pos = e.pos; }
+        else one.set(key, e);
+      }
+      const byCor = [...one.values()].sort((x, y) => (x.cor || '').localeCompare(y.cor || '') || x.lang - y.lang || x.pos - y.pos);
+      list.push({ pos: it.pos, id: it.id, gab: it.gab, a: it.a, b: it.b, c: it.c, hits: h, answered: a, pct: a ? h / a : undefined, exams: byCor });
     }
     list.sort((x, y) => x.pos - y.pos || x.id - y.id);
     if (list.length) out[area] = list;
@@ -563,7 +579,7 @@ function buildSimpleRanks() {
   cols.RANK_AVG_ALL = all; cols.RANK_AVG_STATE = stateRank; cols.RANK_AVG_CITY = cityRank; cols.RANK_AVG_SCHOOL = schoolRank;
 }
 // Cache: only the compact columns (~300 MB) go to IndexedDB, never the raw CSV.
-const CACHE_V = 8;
+const CACHE_V = 9;
 const idb = () => new Promise((res, rej) => {
   const r = indexedDB.open('enem-cache', 1);
   r.onupgradeneeded = () => r.result.createObjectStore('kv');

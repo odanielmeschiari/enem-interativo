@@ -71,6 +71,11 @@ h2 select { float:right; }
 .tri-table { width:100%; border-collapse:collapse; margin-top:12px; font-size:16px; }
 .tri-table th, .tri-table td { padding:8px 12px; border:1px solid var(--line); text-align:left; }
 .tri-table th { background:var(--sunk); color:var(--mut); }
+.tri-toggle { min-width:44px; padding:2px 8px; font-size:15px; font-variant-numeric:tabular-nums; }
+.tri-toggle::after { content:'▸'; margin-left:6px; opacity:.7; }
+.tri-toggle.open::after { content:'▾'; }
+.tri-detail > td { background:rgba(255,255,255,.03); padding:8px 12px 16px; }
+.tri-sub { margin-top:0; font-size:14px; } .tri-sub th { font-size:13px; } .tri-sub th, .tri-sub td { padding:5px 10px; }
 
 .tags { display:flex; flex-wrap:wrap; justify-content:center; gap:4px; margin:8px 0; min-height:22px; } .tags i { font-style:normal; font-size:15px; padding:2px 8px; background:#a8d9aa; color:#16311a; border-radius:4px; }
 .tags i.warn { background:#ffb9b9; color:#4a1015; }

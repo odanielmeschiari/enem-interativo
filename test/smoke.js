@@ -159,11 +159,12 @@ const send = (d, t) => { const p = wait(t); self.onmessage({ data: d }); return 
   const d9 = await send({ t: 'load', file: new File([zip([['microdados_enem_2024/DADOS/RESULTADOS_2024.csv', csv]], false, true)], 'enem.zip') }, 'loaded'); assert.strictEqual(d9.rows, allStats.total, 'deflate64 rows'); console.log('deflate64 ok');
   // item statistics: hits are attributed per (exam, position); LC keeps English and Spanish apart
   const H = fs.readFileSync(f, 'utf8').split('\n')[0].replace(/^\uFEFF/, '').split(';');
-  const csvRow = (i, lang) => { // 45-char answers, one exam code for every area
+  const csvRow = (i, lang, cn = '9001') => { // 45-char answers; the CN exam code varies so two colours can be tested
     const v = H.map(() => ''), put = (k, x) => { v[H.indexOf(k)] = x; };
     put('NU_SEQUENCIAL', String(9000 + i));
     for (const k of ['TP_PRESENCA_CN', 'TP_PRESENCA_CH', 'TP_PRESENCA_LC', 'TP_PRESENCA_MT']) put(k, '1');
-    for (const k of ['CO_PROVA_CN', 'CO_PROVA_CH', 'CO_PROVA_LC', 'CO_PROVA_MT']) put(k, '9001');
+    for (const k of ['CO_PROVA_CH', 'CO_PROVA_LC', 'CO_PROVA_MT']) put(k, '9001');
+    put('CO_PROVA_CN', cn);
     put('TP_LINGUA', String(lang));
     put('TX_RESPOSTAS_CN', 'A'.repeat(45)); put('TX_GABARITO_CN', 'A'.repeat(45));
     put('TX_RESPOSTAS_CH', 'A'.repeat(45)); put('TX_GABARITO_CH', 'B'.repeat(45));
@@ -173,22 +174,27 @@ const send = (d, t) => { const p = wait(t); self.onmessage({ data: d }); return 
     return v.join(';');
   };
   const itens = ['CO_POSICAO;SG_AREA;CO_ITEM;TX_GABARITO;CO_HABILIDADE;IN_ITEM_ABAN;TX_MOTIVO_ABAN;NU_PARAM_A;NU_PARAM_B;NU_PARAM_C;TX_COR;CO_PROVA;TP_LINGUA;IN_ITEM_ADAPTADO'];
-  const item = (area, pos, id, gab, lang) => `${pos};${area};${id};${gab};1;0;;1.2;0.3;0.2;AZUL;9001;${lang};0`;
+  const item = (area, pos, id, gab, lang, cp = 9001) => `${pos};${area};${id};${gab};1;0;;1.2;0.3;0.2;AZUL;${cp};${lang};0`;
   for (let p = 1; p <= 45; p++) {
     itens.push(item('CN', p, 1000 + p, 'A', ''), item('CH', p, 2000 + p, 'B', ''), item('MT', p, 3000 + p, 'A', ''));
     itens.push(p <= 5 ? item('LC', p, 4000 + p, 'A', '0') : item('LC', p, 4200 + p, 'A', ''));
     if (p <= 5) itens.push(item('LC', p, 4100 + p, 'B', '1'));
   }
+  itens.push(item('CN', 2, 1001, 'A', '', 9002)); // the same item in a second colour, at another position
   const li = await send({ t: 'load', file: new File([zip([['microdados_enem_2024/DADOS/RESULTADOS_2024.csv',
-    Buffer.from([H.join(';'), csvRow(0, 0), csvRow(1, 0), csvRow(2, 1)].join('\n') + '\n')],
+    Buffer.from([H.join(';'), csvRow(0, 0), csvRow(1, 0, '9002'), csvRow(2, 1, '9002')].join('\n') + '\n')],
     ['microdados_enem_2024/DADOS/ITENS_PROVA_2024.csv', Buffer.from(itens.join('\n') + '\n')]], false)], 'enem-itens.zip') }, 'loaded');
   const by = (area, id) => li.items[area].find((x) => x.id === id);
   assert.strictEqual(li.items.CN.length, 45); assert.strictEqual(li.items.LC.length, 50); // 40 common + 5 English + 5 Spanish
   assert.strictEqual(by('CN', 1001).pct, 1); assert.strictEqual(by('CN', 1001).answered, 3);
+  assert.deepStrictEqual(by('CN', 1001).exams.map((e) => [e.cp, e.pos, e.answered, e.hits]), [[9001, 1, 1, 1], [9002, 2, 2, 2]]); // per-colour breakdown
+  assert.strictEqual(by('CN', 1002).exams.length, 1);
   assert.strictEqual(by('CH', 2001).pct, 0); // everyone answered, nobody got it
   assert.strictEqual(by('LC', 4001).pct, 1); assert.strictEqual(by('LC', 4001).answered, 2); // English item: English candidates only
+  assert.strictEqual(by('LC', 4001).exams.length, 1); assert.strictEqual(by('LC', 4001).exams[0].lang, 0);
   assert.strictEqual(by('LC', 4101).pct, 0); assert.strictEqual(by('LC', 4101).answered, 1); // Spanish item: Spanish candidate only
   assert.strictEqual(by('LC', 4210).pct, 1); assert.strictEqual(by('LC', 4210).answered, 3); // common item: both languages
+  assert.deepStrictEqual(by('LC', 4210).exams.map((e) => [e.lang, e.answered]), [[0, 2], [1, 1]]); // and it is broken down per language
   console.log('items ok');
   await send({ t: 'clearcache' }, 'cleared'); assert(!opfsFiles.has('resultados.csv'), 'copy deleted'); console.log('after clear:', (await send({ t: 'init' }, 'nocache')).t);
 })();

@@ -583,22 +583,41 @@ function renderTriAnalysis() {
     triHighlight(list, byDisc, { label: 'Mais discriminativa', value: (it) => `a = ${f1(it.a)}` }),
   ].join('');
   const rows = [...list].sort(TRI_SORTS[$('tri-sort').value] || TRI_SORTS.pos);
+  const examName = (e) => (e.cor ? e.cor.charAt(0) + e.cor.slice(1).toLowerCase() : `Prova ${e.cp}`) + (e.lang === 0 ? ' • Inglês' : e.lang === 1 ? ' • Espanhol' : '');
   box.innerHTML = `
     <div class="statgrid">${tiles}</div>
-    <p class="mut"><b>${fmt(list.length)}</b> questões nesta área.</p>
+    <p class="mut"><b>${fmt(list.length)}</b> questões nesta área. Abra <b>Detalhe</b> para ver os acertos por cor de prova.</p>
     <div style="overflow-x:auto">
       <table class="tri-table">
-        <thead><tr><th>Posição</th><th>Item</th><th>Gabarito</th><th>Dificuldade (b)</th><th>Discriminação (a)</th><th>Acerto ao acaso (c)</th><th>Acertos</th></tr></thead>
-        <tbody>${rows.map((it) => `<tr>
+        <thead><tr><th>Posição</th><th>Item</th><th>Gabarito</th><th>Dificuldade (b)</th><th>Discriminação (a)</th><th>Acerto ao acaso (c)</th><th>Acertos</th><th>Detalhe</th></tr></thead>
+        <tbody>${rows.map((it, i) => `<tr>
           <td>${it.pos}</td><td>${it.id}</td><td><b>${it.gab || '—'}</b></td>
           <td>${it.b === undefined ? '—' : f1(it.b)}</td>
           <td>${it.a === undefined ? '—' : f1(it.a)}</td>
           <td>${it.c === undefined ? '—' : f1(it.c)}</td>
           <td>${it.pct === undefined ? '—' : f1(100 * it.pct) + '%'}</td>
-        </tr>`).join('')}</tbody>
+          <td>${it.exams.length ? `<button class="tri-toggle" data-i="${i}" aria-expanded="false" title="Ver a quebra por cor de prova">${it.exams.length}</button>` : '—'}</td>
+        </tr>
+        <tr class="tri-detail" id="tri-d-${i}" hidden><td colspan="8">
+          <table class="tri-table tri-sub">
+            <thead><tr><th>Cor da prova</th><th>Posição</th><th>Acertos</th><th>% de acertos</th></tr></thead>
+            <tbody>${it.exams.map((e) => `<tr>
+              <td>${examName(e)}</td><td>${e.pos}</td><td>${fmt(e.hits)} de ${fmt(e.answered)}</td><td>${f1(100 * e.pct)}%</td>
+            </tr>`).join('')}</tbody>
+          </table>
+        </td></tr>`).join('')}</tbody>
       </table>
     </div>`;
 }
+$('tri-analysis-content').addEventListener('click', (e) => { // expand the per-colour breakdown of one item
+  const b = e.target.closest('.tri-toggle');
+  if (!b) return;
+  const row = $('tri-d-' + b.dataset.i);
+  if (!row) return;
+  row.hidden = !row.hidden;
+  b.setAttribute('aria-expanded', String(!row.hidden));
+  b.classList.toggle('open', !row.hidden);
+});
 
 $('f').addEventListener('input', (e) => { if (e.target.id !== 'mq') { countActive(); schedule(); } });
 $('mq').addEventListener('input', suggest);
